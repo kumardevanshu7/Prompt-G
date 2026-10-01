@@ -4,6 +4,7 @@ import {
   fetchAllPrompts,
   saveNewPrompt,
   removePromptById,
+  updatePromptStatus,
   subscribeToPromptChanges,
 } from './services/db';
 import type { UploadableImage } from './services/db';
@@ -193,7 +194,18 @@ export function App() {
     const labelCounts: Record<string, number> = { all: prompts.length };
     const labelSet = new Set<string>();
 
+    let pendingCount = 0;
+    let usedCount = 0;
+
     prompts.forEach((p) => {
+      if (p.enableCheckmark) {
+        if (p.isUsed) {
+          usedCount++;
+        } else {
+          pendingCount++;
+        }
+      }
+
       if (p.labels && Array.isArray(p.labels)) {
         p.labels.forEach((l) => {
           const norm = l.trim();
@@ -207,6 +219,9 @@ export function App() {
       }
     });
 
+    labelCounts['__pending'] = pendingCount;
+    labelCounts['__used'] = usedCount;
+
     return {
       categories: Array.from(labelSet),
       counts: labelCounts,
@@ -216,7 +231,11 @@ export function App() {
   // Filtered prompts based on Search and Selected Label
   const filteredPrompts = useMemo(() => {
     return prompts.filter((item) => {
-      if (activeCategory !== 'all') {
+      if (activeCategory === '__pending') {
+        if (!item.enableCheckmark || item.isUsed) return false;
+      } else if (activeCategory === '__used') {
+        if (!item.enableCheckmark || !item.isUsed) return false;
+      } else if (activeCategory !== 'all') {
         const hasLabel = item.labels?.some(
           (l) => l.toLowerCase() === activeCategory.toLowerCase()
         );
@@ -290,6 +309,49 @@ export function App() {
   // Handle copy prompt
   const handleCopyPrompt = (_promptText: string, title: string) => {
     showToast(`Copied: "${title}"`, 'success');
+  };
+
+  // Toggle Checkmark / Instagram posted status
+  // Toggle Checkmark / Instagram posted status (One-way: Pending -> Used only)
+  const handleToggleUsed = async (id: string, isUsed: boolean) => {
+    // One-way rule: Once green (used), it cannot be reverted back to red
+    if (!isUsed) return;
+    try {
+      // Optimistic update
+      setPrompts((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, isUsed: true } : p))
+      );
+      await updatePromptStatus(id, { isUsed: true });
+      showToast('Marked as Used & Uploaded! (Yes)', 'success');
+    } catch (err: unknown) {
+      console.error('Failed to toggle prompt status:', err);
+      // Rollback on failure
+      setPrompts((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, isUsed: false } : p))
+      );
+      showToast('Failed to update status', 'error');
+    }
+  };
+
+  // Enable or disable social status tracking on any prompt
+  const handleToggleEnableTracking = async (id: string, enableCheckmark: boolean) => {
+    try {
+      setPrompts((prev) =>
+        prev.map((p) =>
+          p.id === id ? { ...p, enableCheckmark, isUsed: enableCheckmark ? (p.isUsed ?? false) : false } : p
+        )
+      );
+      await updatePromptStatus(id, { enableCheckmark, isUsed: false });
+      showToast(
+        enableCheckmark
+          ? 'Social tracking enabled! (🔴 Red dot added)'
+          : 'Social tracking disabled',
+        'info'
+      );
+    } catch (err: unknown) {
+      console.error('Failed to toggle tracking:', err);
+      showToast('Failed to update tracking', 'error');
+    }
   };
 
   // Bottom Nav navigation handler
@@ -388,6 +450,7 @@ export function App() {
                 item={item}
                 onCardClick={() => setSelectedPromptId(item.id)}
                 onCopyPrompt={handleCopyPrompt}
+                onToggleUsed={handleToggleUsed}
               />
             ))}
           </div>
@@ -419,6 +482,8 @@ export function App() {
         onSelectLabel={(lbl) => setActiveCategory(lbl)}
         userProfile={userProfile}
         onOpenSecurityModal={() => setIsSecurityModalOpen(true)}
+        onToggleUsed={handleToggleUsed}
+        onToggleEnableTracking={handleToggleEnableTracking}
       />
 
       {/* Delete Protection Setup Modal */}

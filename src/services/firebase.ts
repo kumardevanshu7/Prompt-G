@@ -104,6 +104,8 @@ const mapPromptDoc = (id: string, data: Record<string, any>): PromptItem => ({
   updated_at: data.updated_at,
   userId: data.userId || '',
   userName: data.userName || '',
+  enableCheckmark: data.enableCheckmark === true,
+  isUsed: data.isUsed === true,
 });
 
 export const fetchFirebasePrompts = async (userId: string): Promise<PromptItem[]> => {
@@ -138,6 +140,8 @@ export const insertFirebasePrompt = async (
     created_at: new Date().toISOString(),
     userId: currentUid,
     userName: prompt.userName || auth.currentUser?.displayName || 'Creator',
+    enableCheckmark: Boolean(prompt.enableCheckmark),
+    isUsed: Boolean(prompt.isUsed),
   };
 
   const docRef = await addDoc(collection(db, 'prompts'), row);
@@ -145,6 +149,20 @@ export const insertFirebasePrompt = async (
     id: docRef.id,
     ...row,
   };
+};
+
+export const updateFirebasePrompt = async (
+  id: string,
+  updates: Partial<PromptItem>
+): Promise<void> => {
+  await setDoc(
+    doc(db, 'prompts', id),
+    {
+      ...updates,
+      updated_at: new Date().toISOString(),
+    },
+    { merge: true }
+  );
 };
 
 export const deleteFirebasePrompt = async (id: string): Promise<void> => {

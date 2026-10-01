@@ -3,6 +3,7 @@ import { X, Upload, Plus, Trash2, Sparkles, Tag, AlertCircle, Link, Loader2 } fr
 import type { PromptItem } from '../types/prompt';
 import type { UploadableImage } from '../services/db';
 import { compressImage } from '../utils/imageCompressor';
+import { getLabelBadgeClass } from '../utils/labelColors';
 
 export interface PicItem {
   id: string;
@@ -37,6 +38,7 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
   const [urlInput, setUrlInput] = useState('');
   const [labels, setLabels] = useState<string[]>([]);
   const [currentLabelInput, setCurrentLabelInput] = useState('');
+  const [enableCheckmark, setEnableCheckmark] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +66,7 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
     setUrlInput('');
     setLabels([]);
     setCurrentLabelInput('');
+    setEnableCheckmark(false);
     setError(null);
     setUploadProgress(null);
   }, [cleanupBlobs]);
@@ -210,6 +213,9 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
       if (!updated.some((l) => l.toLowerCase() === lower)) {
         updated.push(tag);
       }
+      if (lower === 'instagram' || lower === 'insta') {
+        setEnableCheckmark(true);
+      }
     });
 
     setLabels(updated);
@@ -260,6 +266,8 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
           description: description.trim(),
           prompt: prompt.trim(),
           labels: labels.length > 0 ? labels : ['Prompt'],
+          enableCheckmark,
+          isUsed: false, // Default is "No" (Pending) as requested by user
         },
         uploadableList,
         (current, total) => {
@@ -485,7 +493,46 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
             )}
           </div>
 
-          {/* 5. Labels / Tags */}
+          {/* 5. Checklist / Usage Tracker (Instagram / Socials) */}
+          <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200/90 flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="flex -space-x-1 shrink-0">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
+                </span>
+                <span className="text-xs font-bold text-zinc-900 uppercase tracking-wider">
+                  Social Status (🔴 Red / 🟢 Green Dot)
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold">
+                  Instagram / Socials
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-500 leading-snug">
+                Starts with <span className="text-rose-600 font-bold">🔴 Red Dot [Pending / No]</span> and light red card. Tap anytime to mark <span className="text-emerald-600 font-bold">🟢 Green Dot [Used / Yes]</span>.
+              </p>
+            </div>
+
+            {/* Toggle Switch */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={enableCheckmark}
+              onClick={() => setEnableCheckmark(!enableCheckmark)}
+              disabled={isSubmitting}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                enableCheckmark ? 'bg-rose-600' : 'bg-zinc-300'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                  enableCheckmark ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* 6. Labels / Tags */}
           <div>
             <label htmlFor="prompt-tags" className="block text-xs font-bold text-zinc-700 uppercase tracking-wider mb-1.5">
               Labels / Tags
@@ -499,7 +546,7 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
                   value={currentLabelInput}
                   onChange={(e) => setCurrentLabelInput(e.target.value)}
                   onKeyDown={handleLabelKeyDown}
-                  placeholder="e.g. Cyberpunk, Portrait (type comma or press Enter)"
+                  placeholder="e.g. Instagram, Snap, Portrait (type comma or press Enter)"
                   disabled={isSubmitting}
                   className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-zinc-50 border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:bg-white text-base sm:text-xs font-medium transition-all disabled:opacity-60"
                 />
@@ -519,44 +566,54 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
             {existingLabels.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2.5">
                 <span className="text-[10px] text-zinc-400 font-bold uppercase py-0.5 mr-1">Suggestions:</span>
-                {existingLabels.slice(0, 6).map((tag) => (
-                  <button
-                    key={tag}
-                    type="button"
-                    onClick={() => {
-                      if (!labels.some((l) => l.toLowerCase() === tag.toLowerCase())) {
-                        setLabels([...labels, tag]);
-                      }
-                    }}
-                    disabled={isSubmitting || labels.some((l) => l.toLowerCase() === tag.toLowerCase())}
-                    className="px-2 py-0.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-600 text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-40"
-                  >
-                    +{tag}
-                  </button>
-                ))}
+                {existingLabels.slice(0, 8).map((tag) => {
+                  const isPicked = labels.some((l) => l.toLowerCase() === tag.toLowerCase());
+                  const pillClass = getLabelBadgeClass(tag, 'pill');
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => {
+                        if (!isPicked) {
+                          setLabels([...labels, tag]);
+                          if (tag.toLowerCase() === 'instagram' || tag.toLowerCase() === 'insta') {
+                            setEnableCheckmark(true);
+                          }
+                        }
+                      }}
+                      disabled={isSubmitting || isPicked}
+                      className={`px-2.5 py-0.5 rounded-full text-[11px] transition-colors cursor-pointer disabled:opacity-40 ${pillClass}`}
+                    >
+                      +{tag}
+                    </button>
+                  );
+                })}
               </div>
             )}
 
             {/* Selected Tags Display */}
             {labels.length > 0 && (
               <div className="flex flex-wrap gap-1.5 pt-1">
-                {labels.map((lbl) => (
-                  <span
-                    key={lbl}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-900 text-white text-xs font-semibold shadow-xs"
-                  >
-                    #{lbl}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveLabel(lbl)}
-                      disabled={isSubmitting}
-                      aria-label={`Remove label ${lbl}`}
-                      className="text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                {labels.map((lbl) => {
+                  const tagStyle = getLabelBadgeClass(lbl, 'card');
+                  return (
+                    <span
+                      key={lbl}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold shadow-xs ${tagStyle}`}
                     >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
+                      #{lbl}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveLabel(lbl)}
+                        disabled={isSubmitting}
+                        aria-label={`Remove label ${lbl}`}
+                        className="opacity-70 hover:opacity-100 transition-opacity cursor-pointer ml-0.5"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  );
+                })}
               </div>
             )}
           </div>

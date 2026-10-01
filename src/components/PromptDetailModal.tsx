@@ -16,6 +16,7 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
+import { getLabelBadgeClass } from '../utils/labelColors';
 
 interface PromptDetailModalProps {
   item: PromptItem | null;
@@ -25,6 +26,8 @@ interface PromptDetailModalProps {
   onSelectLabel?: (label: string) => void;
   userProfile?: UserProfile | null;
   onOpenSecurityModal?: () => void;
+  onToggleUsed?: (id: string, isUsed: boolean) => void;
+  onToggleEnableTracking?: (id: string, enable: boolean) => void;
 }
 
 export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
@@ -35,6 +38,8 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
   onSelectLabel,
   userProfile,
   onOpenSecurityModal,
+  onToggleUsed,
+  onToggleEnableTracking,
 }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -224,6 +229,85 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
               )}
             </div>
 
+            {/* Social Upload Status Banner */}
+            {item.enableCheckmark ? (
+              item.isUsed ? (
+                /* Completed State (Green) - One-way: once used, stays completed */
+                <div className="p-4 rounded-2xl bg-emerald-50/90 border border-emerald-200/90 flex items-center justify-between gap-3 shadow-xs">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <Check className="w-4 h-4 stroke-[2.5]" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-emerald-950">Uploaded & Used</span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-900">
+                          Yes
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-700/90 mt-0.5">
+                        This prompt has been posted to Instagram.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="px-3 py-1 rounded-xl bg-white/80 border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-xs">
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Completed</span>
+                  </div>
+                </div>
+              ) : (
+                /* Pending State (Red) - Tap button to mark as Used (Yes) */
+                <div className="p-4 rounded-2xl bg-rose-50/90 border border-rose-200/90 flex items-center justify-between gap-3 shadow-xs">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="relative flex h-3 w-3 shrink-0 ml-1">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500 shadow-xs" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-rose-950">Pending Upload</span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-200 text-rose-900">
+                          No
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-rose-700/90 mt-0.5">
+                        Rough prompt not posted on Instagram yet.
+                      </p>
+                    </div>
+                  </div>
+
+                  {onToggleUsed && (
+                    <button
+                      onClick={() => onToggleUsed(item.id, true)}
+                      className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs font-bold shrink-0 transition-all cursor-pointer shadow-sm flex items-center gap-1.5"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Mark Used (Yes)</span>
+                    </button>
+                  )}
+                </div>
+              )
+            ) : (
+              /* Option to enable tracking for existing prompts */
+              onToggleEnableTracking && (
+                <div className="p-3.5 rounded-2xl border border-zinc-200 bg-zinc-50 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-zinc-900">Social Status Tracking</p>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">
+                      Track whether this prompt is pending or uploaded to Instagram.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => onToggleEnableTracking(item.id, true)}
+                    className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-black text-white text-xs font-bold shrink-0 transition-all cursor-pointer shadow-sm active:scale-95"
+                  >
+                    + Enable Tracking
+                  </button>
+                </div>
+              )
+            )}
+
             {/* Labels / Tags */}
             {item.labels && item.labels.length > 0 && (
               <div className="flex flex-wrap gap-1.5 pt-1">
@@ -234,7 +318,10 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
                       onSelectLabel?.(lbl);
                       onClose();
                     }}
-                    className="px-3.5 py-1.5 rounded-full bg-[#f2f2f4] hover:bg-zinc-900 hover:text-white text-zinc-700 text-xs font-semibold transition-all cursor-pointer"
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${getLabelBadgeClass(
+                      lbl,
+                      'card'
+                    )}`}
                   >
                     #{lbl}
                   </button>

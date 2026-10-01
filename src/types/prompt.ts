@@ -11,6 +11,8 @@ export interface PromptItem {
   is_verified?: boolean;
   userId?: string;
   userName?: string;
+  enableCheckmark?: boolean; // When true, prompt tracks usage status (Pending vs Used)
+  isUsed?: boolean; // false = Pending / No (light red), true = Used / Yes (checked)
 }
 
 export interface UserProfile {

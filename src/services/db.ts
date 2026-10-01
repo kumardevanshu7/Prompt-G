@@ -2,6 +2,7 @@ import type { PromptItem } from '../types/prompt';
 import {
   fetchFirebasePrompts,
   insertFirebasePrompt,
+  updateFirebasePrompt,
   deleteFirebasePrompt,
   subscribeFirebasePrompts,
 } from './firebase';
@@ -61,6 +62,13 @@ export const removePromptById = async (id: string, imageUrls: string[] = []): Pr
 
   // 2. Delete prompt document from Firestore
   await deleteFirebasePrompt(id);
+};
+
+export const updatePromptStatus = async (
+  id: string,
+  updates: Partial<PromptItem>
+): Promise<void> => {
+  await updateFirebasePrompt(id, updates);
 };
 
 /**
