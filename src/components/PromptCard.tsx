@@ -173,17 +173,10 @@ export const PromptCard: React.FC<PromptCardProps> = ({
             </div>
           )}
 
-          {/* Title */}
+          {/* Title (Short/line-clamp-1, other details show inside modal) */}
           <h3 className="font-bold text-base md:text-lg leading-tight line-clamp-1 drop-shadow-sm">
             {item.title}
           </h3>
-
-          {/* Short description */}
-          {item.description && (
-            <p className="text-xs text-zinc-200/90 line-clamp-2 mt-1 leading-snug drop-shadow-sm font-normal">
-              {item.description}
-            </p>
-          )}
 
           {/* Multi-image indicator dots */}
           {totalImages > 1 && (
@@ -205,7 +198,9 @@ export const PromptCard: React.FC<PromptCardProps> = ({
       <div className="mt-2.5 px-1 flex items-center gap-2">
         <button
           onClick={handleCopy}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-full text-xs md:text-sm font-semibold transition-all duration-200 cursor-pointer shadow-sm ${
+          aria-label={copied ? 'Prompt Copied' : 'Copy Prompt'}
+          title={copied ? 'Copied to clipboard' : 'Copy prompt to clipboard'}
+          className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-full text-xs font-semibold transition-all duration-200 cursor-pointer shadow-sm ${
             copied
               ? 'bg-emerald-600 text-white'
               : 'bg-zinc-900 hover:bg-black text-white hover:shadow-md active:scale-95'
@@ -213,13 +208,13 @@ export const PromptCard: React.FC<PromptCardProps> = ({
         >
           {copied ? (
             <>
-              <Check className="w-3.5 h-3.5 text-white" />
-              <span>Copied!</span>
+              <Check className="w-3.5 h-3.5 text-white shrink-0" />
+              <span className="hidden sm:inline truncate">Copied!</span>
             </>
           ) : (
             <>
-              <Copy className="w-3.5 h-3.5 opacity-80" />
-              <span>Copy Prompt</span>
+              <Copy className="w-3.5 h-3.5 opacity-80 shrink-0" />
+              <span className="hidden sm:inline truncate">Copy Prompt</span>
             </>
           )}
         </button>
@@ -231,7 +226,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
             <div
               aria-label="Used & Uploaded"
               title="Status: Used & Uploaded (Yes)"
-              className="p-2.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center justify-center shadow-xs"
+              className="p-2.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center justify-center shadow-xs shrink-0"
             >
               <Check className="w-4 h-4 text-emerald-600 stroke-[2.5]" />
             </div>
@@ -241,7 +236,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
               onClick={handleToggleStatus}
               aria-label="Mark as Used (Yes)"
               title="Click to mark as Used (Yes)"
-              className="p-2.5 rounded-full bg-rose-100 hover:bg-rose-200 text-rose-700 transition-all cursor-pointer font-bold active:scale-95 shadow-xs"
+              className="p-2.5 rounded-full bg-rose-100 hover:bg-rose-200 text-rose-700 transition-all cursor-pointer font-bold active:scale-95 shadow-xs shrink-0"
             >
               <Clock className="w-4 h-4 text-rose-600" />
             </button>
@@ -252,7 +247,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
         <button
           onClick={() => onCardClick(item)}
           aria-label="View prompt details"
-          className="p-2.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 transition-colors cursor-pointer"
+          className="p-2.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 transition-colors cursor-pointer shrink-0"
           title="Open prompt details"
         >
           <ArrowUpRight className="w-4 h-4" />

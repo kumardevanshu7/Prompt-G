@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Upload, Plus, Trash2, Sparkles, Tag, AlertCircle, Link, Loader2 } from 'lucide-react';
+import { X, Upload, Plus, Trash2, Sparkles, Tag, AlertCircle, Link, Loader2, ChevronDown } from 'lucide-react';
 import type { PromptItem } from '../types/prompt';
 import type { UploadableImage } from '../services/db';
 import { compressImage } from '../utils/imageCompressor';
@@ -20,6 +20,7 @@ interface AddPromptModalProps {
     onProgress?: (current: number, total: number) => void
   ) => Promise<void>;
   existingLabels?: string[];
+  existingDescriptions?: string[];
 }
 
 const MAX_IMAGES = 5;
@@ -30,9 +31,11 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
   onClose,
   onSave,
   existingLabels = [],
+  existingDescriptions = [],
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [showPrevDesc, setShowPrevDesc] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [pics, setPics] = useState<PicItem[]>([]);
   const [urlInput, setUrlInput] = useState('');
@@ -41,6 +44,7 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
   const [enableCheckmark, setEnableCheckmark] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  const [uploadPercentage, setUploadPercentage] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -67,8 +71,10 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
     setLabels([]);
     setCurrentLabelInput('');
     setEnableCheckmark(false);
+    setShowPrevDesc(false);
     setError(null);
     setUploadProgress(null);
+    setUploadPercentage(0);
   }, [cleanupBlobs]);
 
   // Handle modal close
@@ -253,6 +259,7 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
       setIsSubmitting(true);
       setError(null);
       setUploadProgress('Preparing upload...');
+      setUploadPercentage(15);
 
       // Transform pics preserving exact sequence
       const uploadableList: UploadableImage[] = pics.map((p) => ({
@@ -271,9 +278,14 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
         },
         uploadableList,
         (current, total) => {
-          setUploadProgress(`Uploading image ${current} of ${total}...`);
+          const pct = total > 0 ? Math.round(15 + (current / total) * 75) : 80;
+          setUploadPercentage(pct);
+          setUploadProgress(`Image ${current} of ${total}`);
         }
       );
+
+      setUploadPercentage(100);
+      setUploadProgress('Saved successfully!');
 
       // Clean up and close on success
       resetForm();
@@ -284,6 +296,7 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
     } finally {
       setIsSubmitting(false);
       setUploadProgress(null);
+      setUploadPercentage(0);
     }
   };
 
@@ -303,9 +316,11 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4.5 border-b border-zinc-100 bg-[#fbfbf9] shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-zinc-900 text-white flex items-center justify-center">
-              <Sparkles className="w-4 h-4" />
-            </div>
+            <img
+              src="/apple-touch-icon.png"
+              alt="Prompt G"
+              className="w-8 h-8 rounded-xl shadow-xs object-cover border border-zinc-200/80"
+            />
             <div>
               <h2 id="add-prompt-title" className="text-base font-bold text-zinc-900 leading-tight">
                 Add New Prompt
@@ -351,9 +366,24 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
 
           {/* 2. Short Description */}
           <div>
-            <label htmlFor="prompt-desc" className="block text-xs font-bold text-zinc-700 uppercase tracking-wider mb-1.5">
-              Short Description
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="prompt-desc" className="block text-xs font-bold text-zinc-700 uppercase tracking-wider">
+                Short Description
+              </label>
+              {existingDescriptions && existingDescriptions.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowPrevDesc(!showPrevDesc)}
+                  disabled={isSubmitting}
+                  className="text-[11px] font-semibold text-zinc-600 hover:text-zinc-950 transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <Sparkles className="w-3 h-3 text-amber-500" />
+                  <span>Previous descriptions ({existingDescriptions.length})</span>
+                  <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showPrevDesc ? 'rotate-180' : ''}`} />
+                </button>
+              )}
+            </div>
+
             <input
               id="prompt-desc"
               type="text"
@@ -363,6 +393,31 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
               disabled={isSubmitting}
               className="w-full px-4 py-3 rounded-2xl bg-zinc-50 border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:bg-white text-base sm:text-sm font-medium transition-all disabled:opacity-60"
             />
+
+            {/* Quick dropdown/chips of previous descriptions */}
+            {showPrevDesc && existingDescriptions && existingDescriptions.length > 0 && (
+              <div className="mt-2 p-3 rounded-2xl bg-zinc-100/95 border border-zinc-200/90 max-h-48 overflow-y-auto space-y-1.5 animate-in fade-in duration-150 shadow-inner">
+                <span className="text-[10px] uppercase font-bold text-zinc-400 block px-0.5">
+                  Tap to reuse previous description:
+                </span>
+                <div className="flex flex-col gap-1.5">
+                  {existingDescriptions.map((desc, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setDescription(desc);
+                        setShowPrevDesc(false);
+                      }}
+                      className="text-left text-xs bg-white hover:bg-zinc-900 hover:text-white text-zinc-800 px-3.5 py-2 rounded-xl border border-zinc-200/90 transition-all cursor-pointer truncate shadow-2xs font-normal"
+                      title={desc}
+                    >
+                      {desc}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 3. Prompt (The Core AI text) */}
@@ -493,27 +548,21 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
             )}
           </div>
 
-          {/* 5. Checklist / Usage Tracker (Instagram / Socials) */}
-          <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200/90 flex items-center justify-between gap-3">
-            <div className="space-y-1">
+          {/* 5. Instagram / Social Tracking Option */}
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-zinc-50 border border-zinc-200/90 flex items-center justify-between gap-3">
+            <div className="space-y-1 min-w-0 pr-1">
               <div className="flex items-center gap-2">
-                <span className="flex -space-x-1 shrink-0">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white" />
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
-                </span>
-                <span className="text-xs font-bold text-zinc-900 uppercase tracking-wider">
-                  Social Status (🔴 Red / 🟢 Green Dot)
-                </span>
-                <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold">
-                  Instagram / Socials
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-xs shrink-0" />
+                <span className="text-xs font-bold text-zinc-900">
+                  Track Instagram Upload Status
                 </span>
               </div>
               <p className="text-[11px] text-zinc-500 leading-snug">
-                Starts with <span className="text-rose-600 font-bold">🔴 Red Dot [Pending / No]</span> and light red card. Tap anytime to mark <span className="text-emerald-600 font-bold">🟢 Green Dot [Used / Yes]</span>.
+                Starts with <span className="text-rose-600 font-semibold">🔴 Red Dot (Pending)</span> on card. Tap anytime to mark <span className="text-emerald-600 font-semibold">🟢 Green Dot (Used)</span>.
               </p>
             </div>
 
-            {/* Toggle Switch */}
+            {/* Clean Toggle Switch */}
             <button
               type="button"
               role="switch"
@@ -525,7 +574,7 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
               }`}
             >
               <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
                   enableCheckmark ? 'translate-x-5' : 'translate-x-0'
                 }`}
               />
@@ -619,19 +668,34 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
           </div>
 
           {/* Footer Submit Buttons */}
-          <div className="pt-4 border-t border-zinc-100 flex items-center justify-between">
-            <div className="text-xs text-zinc-500 font-medium">
-              {uploadProgress ? (
-                <span className="text-zinc-900 font-semibold flex items-center gap-1.5 animate-pulse">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-800" />
-                  {uploadProgress}
-                </span>
+          <div className="pt-4 border-t border-zinc-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            {/* Progress / Status on Left */}
+            <div className="min-w-0 flex-1">
+              {isSubmitting ? (
+                <div className="flex flex-col gap-1.5 max-w-full sm:max-w-xs">
+                  <div className="flex items-center justify-between text-xs font-semibold text-zinc-800">
+                    <span className="flex items-center gap-1.5 truncate">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-900 shrink-0" />
+                      <span className="truncate">{uploadProgress || 'Saving prompt...'}</span>
+                    </span>
+                    <span className="text-xs font-bold text-zinc-900 ml-2 font-mono shrink-0">
+                      {uploadPercentage}%
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 bg-zinc-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-zinc-900 rounded-full transition-all duration-300"
+                      style={{ width: `${uploadPercentage}%` }}
+                    />
+                  </div>
+                </div>
               ) : (
-                <span>* Required fields</span>
+                <span className="text-xs text-zinc-400 font-medium hidden sm:inline">* Required fields</span>
               )}
             </div>
 
-            <div className="flex items-center gap-2.5">
+            {/* Buttons on Right */}
+            <div className="flex items-center gap-2.5 justify-end shrink-0">
               <button
                 type="button"
                 onClick={handleModalClose}
@@ -643,12 +707,12 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-6 py-2.5 rounded-full bg-zinc-900 hover:bg-black text-white text-xs font-bold shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5 active:scale-95"
+                className="px-6 py-2.5 rounded-full bg-zinc-900 hover:bg-black text-white text-xs font-bold shadow-md transition-all cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2 active:scale-95"
               >
                 {isSubmitting ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Saving...</span>
+                    <span>Saving ({uploadPercentage}%)</span>
                   </>
                 ) : (
                   <>

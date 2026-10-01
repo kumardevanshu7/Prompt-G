@@ -22,6 +22,7 @@ import { PromptDetailModal } from './components/PromptDetailModal';
 import { SecuritySettingsModal } from './components/SecuritySettingsModal';
 import { OnboardingModal } from './components/OnboardingModal';
 import { BottomNav } from './components/BottomNav';
+import { ExploreView } from './components/ExploreView';
 import { EmptyState } from './components/EmptyState';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { Toast } from './components/Toast';
@@ -262,6 +263,16 @@ export function App() {
     [prompts, selectedPromptId]
   );
 
+  // Distinct previous short descriptions for quick selection
+  const previousDescriptions = useMemo(() => {
+    const descSet = new Set<string>();
+    prompts.forEach((p) => {
+      const d = p.description?.trim();
+      if (d) descSet.add(d);
+    });
+    return Array.from(descSet);
+  }, [prompts]);
+
   // Handle saving new prompt with progress and re-throw on error
   const handleSavePrompt = async (
     promptData: Omit<PromptItem, 'id' | 'created_at' | 'images'>,
@@ -357,13 +368,7 @@ export function App() {
   // Bottom Nav navigation handler
   const handleTabChange = (tab: 'home' | 'labels') => {
     setActiveTab(tab);
-    if (tab === 'labels') {
-      window.scrollTo({ top: 100, behavior: 'smooth' });
-    } else {
-      setActiveCategory('all');
-      setSearchQuery('');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Initial Auth Loading Screen
@@ -427,7 +432,7 @@ export function App() {
           counts={counts}
         />
 
-        {/* Dynamic Prompts Grid */}
+        {/* Dynamic Prompts View: Explore Horizontal Reels vs Home Grid */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 text-zinc-400">
             <RefreshCw className="w-8 h-8 animate-spin mb-3 text-zinc-300" />
@@ -442,7 +447,19 @@ export function App() {
               setSearchQuery('');
             }}
           />
+        ) : activeTab === 'labels' ? (
+          /* Horizontal Reels View (Explore Tab as requested by user in Point 1) */
+          <ExploreView
+            prompts={prompts}
+            categories={categories}
+            activeCategory={activeCategory}
+            onSelectCategory={setActiveCategory}
+            onCardClick={(item) => setSelectedPromptId(item.id)}
+            onCopyPrompt={handleCopyPrompt}
+            onToggleUsed={handleToggleUsed}
+          />
         ) : (
+          /* Standard Responsive Grid (Home Tab) */
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6 mt-4">
             {filteredPrompts.map((item) => (
               <PromptCard
@@ -470,6 +487,7 @@ export function App() {
         onClose={() => setIsAddModalOpen(false)}
         onSave={handleSavePrompt}
         existingLabels={categories}
+        existingDescriptions={previousDescriptions}
       />
 
       {/* Prompt Detail Modal (keyed by ID to reset gallery state) */}

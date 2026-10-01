@@ -3,10 +3,12 @@
  * Provides custom branding colors:
  * - 'insta' / 'instagram' => Light red / pinkish
  * - 'snap' / 'snapchat' => Yellow
+ * - 'gemini' => Light blue
+ * - 'chatgpt' / 'gpt' => Light grey
  * - Others => Neutral zinc
  */
 
-export type LabelBrand = 'instagram' | 'snapchat' | 'default';
+export type LabelBrand = 'instagram' | 'snapchat' | 'gemini' | 'chatgpt' | 'default';
 
 export function getLabelBrand(tag: string): LabelBrand {
   const norm = (tag || '').trim().toLowerCase().replace(/^#+/, '');
@@ -15,6 +17,23 @@ export function getLabelBrand(tag: string): LabelBrand {
   }
   if (norm === 'snap' || norm === 'snapchat' || norm.startsWith('snap-') || norm.startsWith('snap_')) {
     return 'snapchat';
+  }
+  if (norm === 'gemini' || norm.startsWith('gemini-') || norm.startsWith('gemini_') || norm === 'google gemini') {
+    return 'gemini';
+  }
+  if (
+    norm === 'chatgpt' ||
+    norm === 'gpt' ||
+    norm === 'chat-gpt' ||
+    norm === 'chat_gpt' ||
+    norm === 'gpt4' ||
+    norm === 'gpt-4' ||
+    norm.startsWith('chatgpt-') ||
+    norm.startsWith('chatgpt_') ||
+    norm.startsWith('gpt-') ||
+    norm.startsWith('gpt_')
+  ) {
+    return 'chatgpt';
   }
   return 'default';
 }
@@ -48,6 +67,28 @@ export function getLabelBadgeClass(
     }
     // Yellow for tags & filters
     return 'bg-amber-100/90 text-amber-950 border border-amber-300 font-semibold hover:bg-amber-200/90';
+  }
+
+  if (brand === 'gemini') {
+    if (variant === 'activePill') {
+      return 'bg-sky-500 text-white font-bold shadow-md shadow-sky-500/25';
+    }
+    if (variant === 'card') {
+      return 'bg-sky-500/90 backdrop-blur-xs text-white font-bold shadow-xs';
+    }
+    // Light blue for tags & filters
+    return 'bg-sky-100 text-sky-800 border border-sky-300 font-semibold hover:bg-sky-200';
+  }
+
+  if (brand === 'chatgpt') {
+    if (variant === 'activePill') {
+      return 'bg-zinc-700 text-white font-bold shadow-md shadow-zinc-700/25';
+    }
+    if (variant === 'card') {
+      return 'bg-zinc-200/95 backdrop-blur-xs text-zinc-900 font-bold shadow-xs';
+    }
+    // Light grey for tags & filters
+    return 'bg-zinc-200/85 text-zinc-800 border border-zinc-300 font-semibold hover:bg-zinc-300';
   }
 
   // Default Neutral styling
