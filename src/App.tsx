@@ -24,6 +24,8 @@ import { BottomNav } from './components/BottomNav';
 import { EmptyState } from './components/EmptyState';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { Toast } from './components/Toast';
+import { PWAInstallBanner } from './components/PWAInstallBanner';
+import { useLenis } from './hooks/useLenis';
 import { RefreshCw } from 'lucide-react';
 
 export function App() {
@@ -53,6 +55,10 @@ export function App() {
 
   // Active Bottom Nav Tab
   const [activeTab, setActiveTab] = useState<'home' | 'labels'>('home');
+
+  // Lenis Smooth Momentum Scroll (pauses when any full-screen modal is open)
+  const isAnyModalOpen = isAddModalOpen || selectedPromptId !== null || isSecurityModalOpen || isOnboardingOpen;
+  useLenis(isAnyModalOpen);
 
   // Toast feedback with type (success, error, info)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -423,6 +429,9 @@ export function App() {
         onProfileUpdated={(updated) => setUserProfile(updated)}
         showToast={showToast}
       />
+
+      {/* PWA Install Prompt Banner */}
+      <PWAInstallBanner onInstalled={() => showToast('Prompt G is installed on your device!', 'success')} />
 
       {/* Toast Notification with Type Feedback */}
       {toast && (

@@ -118,7 +118,7 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
         }
       }}
     >
-      <div className="relative w-full max-w-4xl bg-white rounded-[36px] shadow-2xl overflow-hidden my-auto max-h-[92dvh] flex flex-col md:flex-row border border-zinc-200">
+      <div data-lenis-prevent className="relative w-full max-w-4xl bg-white rounded-[36px] shadow-2xl overflow-hidden my-auto max-h-[92dvh] flex flex-col md:flex-row border border-zinc-200">
         {/* Close Button */}
         <button
           onClick={onClose}

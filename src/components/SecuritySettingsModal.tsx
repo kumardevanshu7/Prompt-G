@@ -160,7 +160,7 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
         }
       }}
     >
-      <div className="relative w-full max-w-md bg-white rounded-[32px] shadow-2xl border border-zinc-100 overflow-hidden my-auto max-h-[92dvh] flex flex-col">
+      <div data-lenis-prevent className="relative w-full max-w-md bg-white rounded-[32px] shadow-2xl border border-zinc-100 overflow-hidden my-auto max-h-[92dvh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4.5 border-b border-zinc-100 bg-[#fbfbf9] shrink-0">
           <div className="flex items-center gap-2.5">
