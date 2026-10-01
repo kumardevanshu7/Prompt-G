@@ -15,9 +15,11 @@ import {
   Eye,
   EyeOff,
   ListOrdered,
+  Maximize2,
 } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { getLabelBadgeClass } from '../utils/labelColors';
+import { ImagePreviewModal } from './ImagePreviewModal';
 
 interface PromptDetailModalProps {
   item: PromptItem | null;
@@ -44,6 +46,7 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
 }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [securityInput, setSecurityInput] = useState('');
@@ -139,11 +142,23 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
         <div className="w-full md:w-1/2 bg-zinc-950 flex flex-col items-center justify-center relative p-3 sm:p-5 md:p-6 min-h-[260px] md:min-h-[520px] select-none">
           <div className="relative w-full max-w-[420px] max-h-[48vh] md:max-h-[70vh] flex items-center justify-center rounded-[20px] md:rounded-[24px] overflow-hidden bg-zinc-900/90 border border-white/10 shadow-2xl p-1 md:p-1.5">
             {totalImages > 0 ? (
-              <img
-                src={images[currentImageIndex]}
-                alt={item.title}
-                className="w-auto h-auto max-w-full max-h-[46vh] md:max-h-[68vh] object-contain select-none rounded-xl"
-              />
+              <div
+                onClick={() => setIsPreviewOpen(true)}
+                className="relative w-full h-full flex items-center justify-center cursor-zoom-in group/img"
+                title="Click to preview full-screen"
+              >
+                <img
+                  src={images[currentImageIndex]}
+                  alt={item.title}
+                  className="w-auto h-auto max-w-full max-h-[46vh] md:max-h-[68vh] object-contain select-none rounded-xl group-hover/img:scale-[1.01] transition-transform duration-200"
+                />
+
+                {/* Click to Preview Indicator Badge */}
+                <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/75 hover:bg-black/90 text-white text-[10px] font-bold backdrop-blur-md opacity-85 sm:opacity-0 sm:group-hover/img:opacity-100 transition-opacity shadow-sm pointer-events-none">
+                  <Maximize2 className="w-3 h-3" />
+                  <span>Full Preview</span>
+                </div>
+              </div>
             ) : (
               <div className="text-center p-8 text-zinc-500">
                 <Sparkles className="w-10 h-10 mx-auto mb-2 opacity-40 text-amber-400" />
@@ -511,6 +526,15 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Full-screen Lightbox Image Preview Modal */}
+      <ImagePreviewModal
+        isOpen={isPreviewOpen}
+        images={images}
+        initialIndex={currentImageIndex}
+        title={item.title}
+        onClose={() => setIsPreviewOpen(false)}
+      />
     </div>
   );
 };

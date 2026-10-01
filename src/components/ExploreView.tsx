@@ -8,8 +8,10 @@ import {
   Layers,
   Compass,
   Search,
+  Maximize2,
 } from 'lucide-react';
 import { getLabelBadgeClass } from '../utils/labelColors';
+import { ImagePreviewModal } from './ImagePreviewModal';
 
 interface ExploreViewProps {
   prompts: PromptItem[];
@@ -31,6 +33,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
   onToggleUsed,
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [previewPrompt, setPreviewPrompt] = useState<PromptItem | null>(null);
 
   const handleCopy = (e: React.MouseEvent, item: PromptItem) => {
     e.stopPropagation();
@@ -98,14 +101,28 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
                 onClick={() => onCardClick(item)}
                 className="group relative flex items-center justify-between gap-3 p-3 sm:p-3.5 rounded-2xl bg-white hover:bg-[#fafaf8] border border-zinc-200/80 hover:border-zinc-300 shadow-xs hover:shadow-md transition-all duration-200 cursor-pointer active:scale-[0.995]"
               >
-                {/* 1. Left Side: Pic Thumbnail */}
-                <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden bg-zinc-900 shrink-0 border border-zinc-200/70 shadow-xs flex items-center justify-center">
+                {/* 1. Left Side: Pic Thumbnail (Tap to preview full picture) */}
+                <div
+                  onClick={(e) => {
+                    if (thumbnail) {
+                      e.stopPropagation();
+                      setPreviewPrompt(item);
+                    }
+                  }}
+                  className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden bg-zinc-900 shrink-0 border border-zinc-200/70 shadow-xs flex items-center justify-center cursor-zoom-in group/thumb"
+                  title="Click to preview picture"
+                >
                   {thumbnail ? (
-                    <img
-                      src={thumbnail}
-                      alt={item.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 select-none"
-                    />
+                    <>
+                      <img
+                        src={thumbnail}
+                        alt={item.title}
+                        className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform duration-300 select-none"
+                      />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center text-white transition-opacity pointer-events-none">
+                        <Maximize2 className="w-4 h-4 drop-shadow" />
+                      </div>
+                    </>
                   ) : (
                     <div className="flex flex-col items-center justify-center text-zinc-500">
                       <Sparkles className="w-5 h-5 text-amber-400 opacity-60" />
@@ -114,7 +131,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
 
                   {/* Multi-image badge */}
                   {totalImages > 1 && (
-                    <div className="absolute bottom-1 right-1 flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-white text-[9px] font-bold">
+                    <div className="absolute bottom-1 right-1 flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-white text-[9px] font-bold pointer-events-none">
                       <Layers className="w-2.5 h-2.5" />
                       <span>{totalImages}</span>
                     </div>
@@ -219,6 +236,14 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
           })}
         </div>
       )}
+
+      {/* Full-size Image Preview Lightbox */}
+      <ImagePreviewModal
+        isOpen={previewPrompt !== null}
+        images={previewPrompt?.images ?? []}
+        title={previewPrompt?.title}
+        onClose={() => setPreviewPrompt(null)}
+      />
     </div>
   );
 };

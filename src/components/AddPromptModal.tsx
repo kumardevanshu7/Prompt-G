@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Upload, Plus, Trash2, Sparkles, Tag, AlertCircle, Link, Loader2, ChevronDown, ListOrdered, AlignLeft } from 'lucide-react';
+import { X, Upload, Plus, Trash2, Sparkles, Tag, AlertCircle, Link, Loader2, ChevronDown, ListOrdered, AlignLeft, Eye } from 'lucide-react';
 import type { PromptItem } from '../types/prompt';
 import type { UploadableImage } from '../services/db';
 import { compressImage } from '../utils/imageCompressor';
 import { getLabelBadgeClass } from '../utils/labelColors';
+import { ImagePreviewModal } from './ImagePreviewModal';
 
 export interface PicItem {
   id: string;
@@ -40,6 +41,7 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
   const [showPrevDesc, setShowPrevDesc] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [pics, setPics] = useState<PicItem[]>([]);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [urlInput, setUrlInput] = useState('');
   const [labels, setLabels] = useState<string[]>([]);
   const [currentLabelInput, setCurrentLabelInput] = useState('');
@@ -612,21 +614,40 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
             {pics.length > 0 && (
               <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5 mb-3 p-3 bg-zinc-50 rounded-2xl border border-zinc-200/70">
                 {pics.map((pic, idx) => (
-                  <div key={pic.id} className="relative aspect-9-16 rounded-xl overflow-hidden shadow-sm group border border-zinc-200 bg-zinc-900">
+                  <div
+                    key={pic.id}
+                    onClick={() => setPreviewIndex(idx)}
+                    className="relative aspect-9-16 rounded-xl overflow-hidden shadow-sm group border border-zinc-200 bg-zinc-900 cursor-pointer hover:ring-2 hover:ring-zinc-900 transition-all"
+                    title="Tap to preview full image"
+                  >
                     <img
                       src={pic.src}
                       alt={`Upload preview ${idx + 1}`}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
-                    <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-white text-[10px] font-bold">
+
+                    {/* Sequence Badge */}
+                    <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-white text-[10px] font-bold pointer-events-none">
                       #{idx + 1}
                     </div>
+
+                    {/* Hover Preview Eye Overlay */}
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center text-white transition-opacity gap-1 pointer-events-none">
+                      <Eye className="w-5 h-5 drop-shadow-md" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider">Preview</span>
+                    </div>
+
+                    {/* Remove button */}
                     <button
                       type="button"
-                      onClick={() => handleRemoveImage(pic.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveImage(pic.id);
+                      }}
                       disabled={isSubmitting}
                       aria-label={`Remove image ${idx + 1}`}
-                      className="absolute top-1 right-1 w-6 h-6 rounded-full bg-rose-600/90 hover:bg-rose-700 text-white flex items-center justify-center opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-all cursor-pointer disabled:opacity-40"
+                      className="absolute top-1 right-1 w-6 h-6 rounded-full bg-rose-600/90 hover:bg-rose-700 text-white flex items-center justify-center opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-all cursor-pointer disabled:opacity-40 z-10 shadow-xs active:scale-90"
+                      title="Remove image"
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -881,6 +902,15 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
           </div>
         </form>
       </div>
+
+      {/* Full-size Image Preview Modal */}
+      <ImagePreviewModal
+        isOpen={previewIndex !== null}
+        images={pics.map((p) => p.src)}
+        initialIndex={previewIndex ?? 0}
+        title={title || 'Upload Preview'}
+        onClose={() => setPreviewIndex(null)}
+      />
     </div>
   );
 };
