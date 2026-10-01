@@ -1,0 +1,22 @@
+// =====================================================================
+// FIRESTORE RULES FOR PROMPTG (FAST MOBILE + LAPTOP SYNC)
+// Copy the entire code below and paste it in:
+// Firebase Console -> Firestore Database -> "Rules" tab -> Click "Publish"
+// =====================================================================
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Allow full read and write access for prompts (Mobile + Laptop fast real-time sync)
+    match /prompts/{promptId} {
+      allow read, write: if true;
+    }
+
+    // Allow user profiles creation and reading
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+  }
+}
