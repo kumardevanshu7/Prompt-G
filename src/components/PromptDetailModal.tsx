@@ -14,6 +14,7 @@ import {
   ShieldAlert,
   Eye,
   EyeOff,
+  ListOrdered,
 } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { getLabelBadgeClass } from '../utils/labelColors';
@@ -222,11 +223,40 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
               <h1 id="prompt-detail-title" className="text-2xl md:text-3xl font-extrabold text-zinc-900 tracking-tight leading-tight">
                 {item.title}
               </h1>
-              {item.description && (
-                <p className="mt-2 text-sm text-zinc-600 leading-relaxed font-normal">
-                  {item.description}
-                </p>
-              )}
+              {item.description && (() => {
+                const lines = item.description.split('\n').map((l) => l.trim()).filter(Boolean);
+                const isStepList = lines.length > 1 && lines.every((l) => /^(\d+[\.\)]|[-•*])\s+/.test(l));
+
+                if (isStepList) {
+                  return (
+                    <div className="mt-3 p-3.5 rounded-2xl bg-zinc-50 border border-zinc-200/80 space-y-2">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-800 uppercase tracking-wider">
+                        <ListOrdered className="w-3.5 h-3.5 text-zinc-700" />
+                        <span>Steps / How to Use</span>
+                      </div>
+                      <div className="space-y-1.5 pt-0.5">
+                        {lines.map((line, idx) => {
+                          const cleanText = line.replace(/^(\d+[\.\)]|[-•*])\s+/, '');
+                          return (
+                            <div key={idx} className="flex items-start gap-2.5 text-xs text-zinc-700 font-medium">
+                              <span className="w-5 h-5 rounded-full bg-zinc-900 text-white font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
+                                {idx + 1}
+                              </span>
+                              <span className="leading-relaxed flex-1 pt-0.5">{cleanText}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <p className="mt-2 text-sm text-zinc-600 leading-relaxed font-normal whitespace-pre-line">
+                    {item.description}
+                  </p>
+                );
+              })()}
             </div>
 
             {/* Social Upload Status Banner */}

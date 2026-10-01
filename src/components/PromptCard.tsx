@@ -93,43 +93,61 @@ export const PromptCard: React.FC<PromptCardProps> = ({
           </div>
         )}
 
-        {/* Top Badges (Only Status Badge on left, and Images count on right. No hashtag labels at top) */}
-        <div className="absolute top-3 left-3 right-3 flex items-start justify-between z-10 pointer-events-none gap-2">
+        {/* Top Badges (Status Badge on left, and Images count on right) */}
+        <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 right-2.5 sm:right-3 flex items-center justify-between z-10 pointer-events-none gap-1.5">
           {/* Left: Red / Green Dot Status Label */}
-          <div className="flex items-center gap-1.5 pointer-events-auto">
+          <div className="flex items-center pointer-events-auto shrink-0 min-w-0">
             {item.enableCheckmark && (
               item.isUsed ? (
                 /* Once Used, it stays Green (One-way) */
                 <div
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold shadow-md backdrop-blur-md border bg-black/75 border-emerald-500/60 text-emerald-200"
+                  className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-[11px] font-bold shadow-md backdrop-blur-md border bg-black/75 border-emerald-500/60 text-emerald-200 whitespace-nowrap shrink-0"
                   title="Status: Used & Uploaded (Yes)"
                 >
                   <span className="relative flex h-2 w-2 shrink-0">
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400 shadow-sm shadow-emerald-400" />
                   </span>
-                  <span>Used (Yes)</span>
+                  <span>
+                    {totalImages > 1 ? (
+                      <>
+                        <span className="hidden sm:inline">Used (Yes)</span>
+                        <span className="sm:hidden">Used</span>
+                      </>
+                    ) : (
+                      'Used (Yes)'
+                    )}
+                  </span>
                 </div>
               ) : (
                 /* Clickable Pending (No) Button */
                 <button
                   onClick={handleToggleStatus}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold shadow-md cursor-pointer transition-all active:scale-95 backdrop-blur-md border bg-black/80 border-rose-500/60 text-rose-200 hover:bg-black/95"
+                  className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-[10px] sm:text-[11px] font-bold shadow-md cursor-pointer transition-all active:scale-95 backdrop-blur-md border bg-black/80 border-rose-500/60 text-rose-200 hover:bg-black/95 whitespace-nowrap shrink-0"
                   title="Click to mark as Used (Yes)"
                 >
                   <span className="relative flex h-2 w-2 shrink-0">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500 shadow-sm shadow-rose-500" />
                   </span>
-                  <span>Pending (No)</span>
+                  <span>
+                    {totalImages > 1 ? (
+                      <>
+                        <span className="hidden sm:inline">Pending (No)</span>
+                        <span className="sm:hidden">Pending</span>
+                      </>
+                    ) : (
+                      'Pending (No)'
+                    )}
+                  </span>
                 </button>
               )
             )}
           </div>
 
           {/* Right: Multiple Images Indicator */}
-          <div className="flex items-center gap-1.5 pointer-events-auto shrink-0">
+          <div className="flex items-center pointer-events-auto shrink-0">
             {totalImages > 1 && (
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-[11px] font-semibold tracking-wide shadow-sm">
+              <div className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] sm:text-[11px] font-semibold tracking-wide shadow-sm whitespace-nowrap shrink-0">
                 <Layers className="w-3 h-3" />
                 <span>{currentImageIndex + 1}/{totalImages}</span>
               </div>
