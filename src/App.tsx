@@ -448,9 +448,9 @@ export function App() {
             }}
           />
         ) : activeTab === 'labels' ? (
-          /* Horizontal Reels View (Explore Tab as requested by user in Point 1) */
+          /* List View (Explore Tab: Left pic, Title/tags, Right go-to-page arrow) */
           <ExploreView
-            prompts={prompts}
+            prompts={filteredPrompts}
             categories={categories}
             activeCategory={activeCategory}
             onSelectCategory={setActiveCategory}
