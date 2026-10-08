@@ -4,6 +4,7 @@ import {
   insertFirebasePrompt,
   updateFirebasePrompt,
   deleteFirebasePrompt,
+  deleteAllFirebasePrompts,
   subscribeFirebasePrompts,
 } from './firebase';
 import { uploadImageToSupabase, deleteImagesFromSupabase } from './supabase';
@@ -80,3 +81,30 @@ export const subscribeToPromptChanges = (
 ): (() => void) => {
   return subscribeFirebasePrompts(userId, onUpdate);
 };
+
+/**
+ * DANGER: Deletes ALL prompts (Firestore) and ALL images (Supabase Storage) for the user.
+ * This is irreversible. Calls onProgress(deleted, total) so UI can show progress.
+ */
+export const resetAllUserData = async (
+  userId: string,
+  onProgress?: (deleted: number, total: number) => void
+): Promise<void> => {
+  // Step 1: Delete all Firestore docs, collecting image URLs
+  const allImageUrls = await deleteAllFirebasePrompts(userId);
+
+  // Step 2: Delete all images from Supabase Storage (with progress)
+  const total = allImageUrls.length;
+  let deleted = 0;
+  for (const url of allImageUrls) {
+    try {
+      await deleteImagesFromSupabase([url]);
+    } catch {
+      // Best-effort — log but continue
+      console.warn('[resetAllUserData] Could not delete image:', url);
+    }
+    deleted++;
+    onProgress?.(deleted, total);
+  }
+};
+

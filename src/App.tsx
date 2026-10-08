@@ -6,6 +6,7 @@ import {
   removePromptById,
   updatePromptStatus,
   subscribeToPromptChanges,
+  resetAllUserData,
 } from './services/db';
 import type { UploadableImage } from './services/db';
 import {
@@ -317,6 +318,14 @@ export function App() {
     }
   };
 
+  // DANGER: Reset entire app — delete all prompts & images from Firebase/Supabase, clear local state
+  const handleResetApp = async (onProgress?: (deleted: number, total: number) => void): Promise<void> => {
+    if (!userProfile?.uid) throw new Error('Not signed in');
+    await resetAllUserData(userProfile.uid, onProgress);
+    setPrompts([]);
+    setSelectedPromptId(null);
+  };
+
   // Handle copy prompt
   const handleCopyPrompt = (_promptText: string, title: string) => {
     showToast(`Copied: "${title}"`, 'success');
@@ -511,6 +520,7 @@ export function App() {
         userProfile={userProfile}
         onProfileUpdated={(updated) => setUserProfile(updated)}
         showToast={showToast}
+        onResetApp={handleResetApp}
       />
 
       {/* PWA Install Prompt Banner */}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, ShieldCheck, Lock, Check, Eye, EyeOff, KeyRound, AlertTriangle, RefreshCw } from 'lucide-react';
+import { X, ShieldCheck, Lock, Check, Eye, EyeOff, KeyRound, AlertTriangle, RefreshCw, Trash2 } from 'lucide-react';
 import type { UserProfile } from '../types/prompt';
 import { saveUserProfile, auth, googleProvider } from '../services/firebase';
 import { reauthenticateWithPopup } from 'firebase/auth';
@@ -10,6 +10,7 @@ interface SecuritySettingsModalProps {
   userProfile: UserProfile | null;
   onProfileUpdated: (updated: UserProfile) => void;
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
+  onResetApp: (onProgress?: (deleted: number, total: number) => void) => Promise<void>;
 }
 
 const PRESET_QUESTIONS = [
@@ -26,6 +27,7 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
   userProfile,
   onProfileUpdated,
   showToast,
+  onResetApp,
 }) => {
   const hasExistingSetup = Boolean(userProfile?.securityQuestion && userProfile?.securityAnswer);
 
@@ -43,6 +45,13 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
   const [isResetting, setIsResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isUnlockedByGoogle, setIsUnlockedByGoogle] = useState(false);
+
+  // --- Danger Zone: Reset App ---
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [isResettingApp, setIsResettingApp] = useState(false);
+  const [resetProgress, setResetProgress] = useState<{ deleted: number; total: number } | null>(null);
+
 
   useEffect(() => {
     if (!isOpen || !userProfile) return;
@@ -146,6 +155,28 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
       setError('Failed to save. Please try again.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Danger Zone handler
+  const handleResetAppConfirm = async () => {
+    if (resetConfirmText.trim().toUpperCase() !== 'RESET') return;
+    try {
+      setIsResettingApp(true);
+      setResetProgress(null);
+      await onResetApp((deleted, total) => {
+        setResetProgress({ deleted, total });
+      });
+      showToast('App reset complete! All your data has been deleted.', 'success');
+      setShowResetConfirm(false);
+      setResetConfirmText('');
+      onClose();
+    } catch (err) {
+      console.error('Reset failed:', err);
+      showToast('Reset failed. Please try again.', 'error');
+    } finally {
+      setIsResettingApp(false);
+      setResetProgress(null);
     }
   };
 
@@ -353,6 +384,96 @@ export const SecuritySettingsModal: React.FC<SecuritySettingsModalProps> = ({
                 </>
               )}
             </button>
+          </div>
+
+          {/* ── Danger Zone ── */}
+          <div className="mt-2 rounded-2xl border border-rose-200 bg-rose-50 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-rose-200 bg-rose-100/60">
+              <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
+              <span className="text-xs font-bold text-rose-700 tracking-wide uppercase">Danger Zone</span>
+            </div>
+
+            <div className="p-4 space-y-3">
+              <p className="text-xs text-rose-700 leading-relaxed">
+                <span className="font-bold">Reset App</span> — Permanently deletes <span className="font-bold">all your prompts</span> and <span className="font-bold">all uploaded images</span> from the database. This action <span className="font-bold underline">cannot be undone</span>.
+              </p>
+
+              {!showResetConfirm ? (
+                <button
+                  type="button"
+                  onClick={() => { setShowResetConfirm(true); setResetConfirmText(''); }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-sm"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Reset App
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-rose-800">
+                    Type <span className="font-black tracking-widest bg-rose-200 px-1.5 py-0.5 rounded">RESET</span> to confirm:
+                  </p>
+                  <input
+                    type="text"
+                    value={resetConfirmText}
+                    onChange={(e) => setResetConfirmText(e.target.value)}
+                    placeholder="Type RESET here"
+                    disabled={isResettingApp}
+                    autoComplete="off"
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-rose-300 text-sm font-bold text-rose-900 placeholder:font-normal placeholder:text-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-500 transition-all disabled:opacity-50"
+                  />
+
+                  {/* Progress bar */}
+                  {isResettingApp && (
+                    <div className="space-y-1.5">
+                      <div className="w-full bg-rose-200 rounded-full h-2 overflow-hidden">
+                        <div
+                          className="h-2 bg-rose-500 rounded-full transition-all duration-300"
+                          style={{
+                            width: resetProgress && resetProgress.total > 0
+                              ? `${Math.round((resetProgress.deleted / resetProgress.total) * 100)}%`
+                              : '10%',
+                          }}
+                        />
+                      </div>
+                      <p className="text-xs text-rose-600 font-semibold text-center">
+                        {resetProgress && resetProgress.total > 0
+                          ? `Deleting images… ${resetProgress.deleted} / ${resetProgress.total}`
+                          : 'Deleting prompts from database…'}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setShowResetConfirm(false); setResetConfirmText(''); }}
+                      disabled={isResettingApp}
+                      className="px-4 py-2 rounded-full text-xs font-semibold text-rose-600 hover:bg-rose-100 transition-colors cursor-pointer disabled:opacity-40"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetAppConfirm}
+                      disabled={resetConfirmText.trim().toUpperCase() !== 'RESET' || isResettingApp}
+                      className="flex items-center gap-1.5 px-5 py-2 rounded-full bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-xs font-bold transition-colors cursor-pointer disabled:cursor-not-allowed shadow-sm"
+                    >
+                      {isResettingApp ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Resetting…</span>
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Yes, Delete Everything</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </form>
       </div>

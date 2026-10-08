@@ -170,6 +170,27 @@ export const deleteFirebasePrompt = async (id: string): Promise<void> => {
 };
 
 /**
+ * Deletes ALL prompt documents belonging to a user from Firestore.
+ * Returns the list of all image URLs that were stored, so the caller
+ * can delete them from Supabase Storage next.
+ */
+export const deleteAllFirebasePrompts = async (userId: string): Promise<string[]> => {
+  if (!userId) return [];
+  const q = query(collection(db, 'prompts'), where('userId', '==', userId));
+  const snap = await getDocs(q);
+
+  const allImageUrls: string[] = [];
+  const deletions = snap.docs.map((d) => {
+    const data = d.data();
+    if (Array.isArray(data.images)) allImageUrls.push(...data.images);
+    return deleteDoc(d.ref);
+  });
+
+  await Promise.all(deletions);
+  return allImageUrls;
+};
+
+/**
  * Real-time listener: Returns parsed PromptItem[] directly to eliminate double reads.
  */
 export const subscribeFirebasePrompts = (
