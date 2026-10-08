@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Plus, LogIn, LogOut, X, ShieldCheck } from 'lucide-react';
+import { Search, Plus, LogIn, LogOut, X, Settings } from 'lucide-react';
 import type { UserProfile } from '../types/prompt';
 
 interface HeaderProps {
@@ -105,19 +105,19 @@ export const Header: React.FC<HeaderProps> = ({
                     )}
                   </div>
 
-                  {/* Delete Protection (Security Question) */}
+                  {/* Settings (Security & Reset App) */}
                   <button
                     onClick={() => {
                       setShowUserMenu(false);
                       onOpenSecurityModal();
                     }}
-                    className="w-full px-4 py-2.5 text-left text-xs text-zinc-700 hover:bg-zinc-50 flex items-center gap-2 cursor-pointer font-medium transition-colors"
+                    className="w-full px-4 py-2.5 text-left text-xs text-zinc-700 hover:bg-zinc-50 flex items-center gap-2.5 cursor-pointer font-medium transition-colors"
                   >
-                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <Settings className="w-4 h-4 text-zinc-700 shrink-0" />
                     <div className="flex flex-col">
-                      <span className="font-bold text-zinc-800">Delete Protection</span>
+                      <span className="font-bold text-zinc-900">Settings</span>
                       <span className="text-[10px] text-zinc-400">
-                        {userProfile.securityQuestion ? 'Protected with Question' : 'Set up Secret Question'}
+                        Security & Reset App
                       </span>
                     </div>
                   </button>

@@ -20,7 +20,7 @@ import { CategoryPills } from './components/CategoryPills';
 import { PromptCard } from './components/PromptCard';
 import { AddPromptModal } from './components/AddPromptModal';
 import { PromptDetailModal } from './components/PromptDetailModal';
-import { SecuritySettingsModal } from './components/SecuritySettingsModal';
+import { SettingsModal } from './components/SettingsModal';
 import { OnboardingModal } from './components/OnboardingModal';
 import { BottomNav } from './components/BottomNav';
 import { ExploreView } from './components/ExploreView';
@@ -513,8 +513,8 @@ export function App() {
         onToggleEnableTracking={handleToggleEnableTracking}
       />
 
-      {/* Delete Protection Setup Modal */}
-      <SecuritySettingsModal
+      {/* Settings Modal (Security & Reset App) */}
+      <SettingsModal
         isOpen={isSecurityModalOpen}
         onClose={() => setIsSecurityModalOpen(false)}
         userProfile={userProfile}
