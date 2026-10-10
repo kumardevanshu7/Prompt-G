@@ -132,24 +132,40 @@ export const insertFirebasePrompt = async (
     throw new Error('User must be signed in to save prompts.');
   }
 
-  const row = {
-    title: prompt.title,
-    description: prompt.description,
-    prompt: prompt.prompt,
-    images: prompt.images,
-    labels: prompt.labels,
+  const row: Record<string, any> = {
+    title: prompt.title || '',
+    description: prompt.description || '',
+    prompt: prompt.prompt || '',
+    images: prompt.images || [],
+    labels: prompt.labels || [],
     created_at: new Date().toISOString(),
     userId: currentUid,
     userName: prompt.userName || auth.currentUser?.displayName || 'Creator',
     enableCheckmark: Boolean(prompt.enableCheckmark),
     isUsed: Boolean(prompt.isUsed),
-    publishCategory: prompt.publishCategory || (Boolean(prompt.isUsed) ? 'direct' : undefined),
   };
+
+  // Only assign publishCategory if defined, never pass undefined to Firestore
+  if (prompt.publishCategory) {
+    row.publishCategory = prompt.publishCategory;
+  } else if (prompt.isUsed) {
+    row.publishCategory = 'direct';
+  }
 
   const docRef = await addDoc(collection(db, 'prompts'), row);
   return {
     id: docRef.id,
-    ...row,
+    title: row.title,
+    description: row.description,
+    prompt: row.prompt,
+    images: row.images,
+    labels: row.labels,
+    created_at: row.created_at,
+    userId: row.userId,
+    userName: row.userName,
+    enableCheckmark: row.enableCheckmark,
+    isUsed: row.isUsed,
+    publishCategory: row.publishCategory,
   };
 };
 
@@ -157,10 +173,18 @@ export const updateFirebasePrompt = async (
   id: string,
   updates: Partial<PromptItem>
 ): Promise<void> => {
+  // Strip out any undefined values so Firestore does not reject the document write
+  const cleanUpdates: Record<string, any> = {};
+  for (const [key, value] of Object.entries(updates)) {
+    if (value !== undefined) {
+      cleanUpdates[key] = value;
+    }
+  }
+
   await setDoc(
     doc(db, 'prompts', id),
     {
-      ...updates,
+      ...cleanUpdates,
       updated_at: new Date().toISOString(),
     },
     { merge: true }
