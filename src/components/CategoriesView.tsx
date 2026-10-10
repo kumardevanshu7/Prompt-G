@@ -16,6 +16,7 @@ import { PromptCard } from './PromptCard';
 import { getLabelBadgeClass, getLabelIcon } from '../utils/labelColors';
 import { ImagePreviewModal } from './ImagePreviewModal';
 import { copyToClipboard } from '../utils/clipboard';
+import { useBackHandler } from '../hooks/useBackHandler';
 
 export const getPublishType = (p: PromptItem): 'direct' | 'unreleased' => {
   if (p.publishCategory === 'unreleased') return 'unreleased';
@@ -46,6 +47,9 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   const [viewMode, setViewMode] = useState<ViewMode>('card');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [previewPrompt, setPreviewPrompt] = useState<PromptItem | null>(null);
+
+  // Step-by-step back handler for preview lightbox on mobile
+  useBackHandler(previewPrompt !== null, () => setPreviewPrompt(null), 'categories-preview');
 
   // Filter only published / used prompts
   const publishedPrompts = useMemo(() => {

@@ -13,6 +13,7 @@ import {
 import { getLabelBadgeClass, getLabelIcon } from '../utils/labelColors';
 import { ImagePreviewModal } from './ImagePreviewModal';
 import { copyToClipboard } from '../utils/clipboard';
+import { useBackHandler } from '../hooks/useBackHandler';
 
 interface ExploreViewProps {
   prompts: PromptItem[];
@@ -35,6 +36,9 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [previewPrompt, setPreviewPrompt] = useState<PromptItem | null>(null);
+
+  // Step-by-step back handler for preview lightbox on mobile
+  useBackHandler(previewPrompt !== null, () => setPreviewPrompt(null), 'explore-preview');
 
   const handleCopy = async (e: React.MouseEvent, item: PromptItem) => {
     e.stopPropagation();

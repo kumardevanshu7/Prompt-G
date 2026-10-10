@@ -34,6 +34,7 @@ import { copyToClipboard } from '../utils/clipboard';
 import { getLabelBadgeClass, getLabelIcon } from '../utils/labelColors';
 import { compressImage, isHeicFile } from '../utils/imageCompressor';
 import { ImagePreviewModal } from './ImagePreviewModal';
+import { useBackHandler } from '../hooks/useBackHandler';
 
 export interface EditPicItem {
   id: string;
@@ -227,6 +228,61 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [item, isDeleting, isSavingEdit, isPreviewOpen, showEditAuthModal, isEditingMode, showConfirmDelete, onClose]);
 
+  const cleanupEditBlobs = useCallback((picsList: EditPicItem[]) => {
+    picsList.forEach((p) => {
+      if (p.file && p.src.startsWith('blob:')) {
+        URL.revokeObjectURL(p.src);
+      }
+    });
+  }, []);
+
+  const handleCancelEdit = useCallback(() => {
+    cleanupEditBlobs(editPics);
+    setIsEditingMode(false);
+  }, [cleanupEditBlobs, editPics]);
+
+  // Step-by-step back handlers for mobile swipe-back gestures & Android back button
+  useBackHandler(Boolean(item) && !isPreviewOpen && !showEditAuthModal && !showConfirmDelete && !isEditingMode, onClose, 'detail-page');
+  useBackHandler(isPreviewOpen, () => setIsPreviewOpen(false), 'detail-preview');
+  useBackHandler(showEditAuthModal, () => setShowEditAuthModal(false), 'detail-auth');
+  useBackHandler(showConfirmDelete, () => setShowConfirmDelete(false), 'detail-delete');
+  useBackHandler(isEditingMode && !isPreviewOpen, handleCancelEdit, 'detail-edit');
+
+  // Touch edge swipe-back gesture detector for mobile screens
+  const touchStartXRef = useRef<number | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      touchStartXRef.current = e.touches[0].clientX;
+      touchStartYRef.current = e.touches[0].clientY;
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartXRef.current === null || touchStartYRef.current === null) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartXRef.current;
+    const deltaY = e.changedTouches[0].clientY - touchStartYRef.current;
+    const startX = touchStartXRef.current;
+    touchStartXRef.current = null;
+    touchStartYRef.current = null;
+
+    // Detect swipe right starting from near the left edge (first 75px of the screen)
+    if (startX < 75 && deltaX > 70 && deltaX > 1.8 * Math.abs(deltaY)) {
+      if (isPreviewOpen) {
+        setIsPreviewOpen(false);
+      } else if (showEditAuthModal) {
+        setShowEditAuthModal(false);
+      } else if (showConfirmDelete) {
+        setShowConfirmDelete(false);
+      } else if (isEditingMode) {
+        handleCancelEdit();
+      } else {
+        onClose();
+      }
+    }
+  };
+
   if (!item) return null;
 
   const images = item.images && item.images.length > 0 ? item.images : [];
@@ -343,14 +399,6 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
   const switchToTextMode = () => {
     setEditDescMode('text');
   };
-
-  const cleanupEditBlobs = useCallback((picsList: EditPicItem[]) => {
-    picsList.forEach((p) => {
-      if (p.file && p.src.startsWith('blob:')) {
-        URL.revokeObjectURL(p.src);
-      }
-    });
-  }, []);
 
   const handleAddEditLabel = () => {
     const raw = editCurrentLabelInput.trim();
@@ -482,11 +530,6 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     });
   };
 
-  const handleCancelEdit = () => {
-    cleanupEditBlobs(editPics);
-    setIsEditingMode(false);
-  };
-
   const handleSaveEdit = async () => {
     if (!editTitle.trim()) {
       setEditError('Title is required');
@@ -560,8 +603,10 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
       aria-modal="true"
       aria-labelledby="prompt-detail-title"
       data-lenis-prevent
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
       className="fixed inset-0 z-50 bg-[#fbfbf9] overflow-y-auto overscroll-contain h-[100dvh] w-full flex flex-col select-auto animate-in fade-in duration-200"
-      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+      style={{ WebkitOverflowScrolling: 'touch' }}
     >
       {/* ── Top Page Navigation Bar ── */}
       <header className="sticky top-0 z-30 bg-[#fbfbf9]/95 backdrop-blur-md border-b border-zinc-200/80 px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between shadow-xs">

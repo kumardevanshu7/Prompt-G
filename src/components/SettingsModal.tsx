@@ -6,6 +6,7 @@ import {
 import type { UserProfile } from '../types/prompt';
 import { saveUserProfile, auth, googleProvider } from '../services/firebase';
 import { reauthenticateWithPopup } from 'firebase/auth';
+import { useBackHandler } from '../hooks/useBackHandler';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -88,6 +89,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setResetConfirmText('');
     }
   }, [isOpen, userProfile]);
+
+  // Step-by-step back handler for mobile swipe-back gesture & Android back button
+  useBackHandler(isOpen && !isSaving && !isResettingApp, onClose, 'settings-modal');
+
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isSaving && !isResettingApp) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, isSaving, isResettingApp, onClose]);
 
   if (!isOpen || !userProfile) return null;
 

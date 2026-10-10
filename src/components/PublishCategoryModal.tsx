@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Send, Sparkles, Check, ArrowRight } from 'lucide-react';
+import { useBackHandler } from '../hooks/useBackHandler';
 
 interface PublishCategoryModalProps {
   isOpen: boolean;
@@ -16,6 +17,21 @@ export const PublishCategoryModal: React.FC<PublishCategoryModalProps> = ({
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<'direct' | 'unreleased'>('direct');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Step-by-step back handler for mobile swipe-back gesture & Android back button
+  useBackHandler(isOpen && !isSubmitting, onClose, 'publish-category');
+
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isSubmitting) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, isSubmitting, onClose]);
 
   if (!isOpen) return null;
 

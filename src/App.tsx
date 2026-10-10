@@ -33,6 +33,7 @@ import { WelcomeScreen } from './components/WelcomeScreen';
 import { Toast } from './components/Toast';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { useLenis } from './hooks/useLenis';
+import { useBackHandler } from './hooks/useBackHandler';
 import { RefreshCw } from 'lucide-react';
 
 export function App() {
@@ -67,6 +68,23 @@ export function App() {
   // Lenis Smooth Momentum Scroll (pauses when any full-screen modal is open)
   const isAnyModalOpen = isAddModalOpen || selectedPromptId !== null || isSecurityModalOpen || isOnboardingOpen || publishTargetPrompt !== null;
   useLenis(isAnyModalOpen);
+
+  // Mobile swipe back: Return to home tab from categories/labels/analytics before exiting
+  useBackHandler(
+    activeTab !== 'home' && !isAnyModalOpen,
+    () => setActiveTab('home'),
+    'app-tab'
+  );
+
+  // Mobile swipe back: Clear active search query or filter before exiting
+  useBackHandler(
+    activeTab === 'home' && !isAnyModalOpen && (Boolean(searchQuery.trim()) || activeCategory !== 'all'),
+    () => {
+      setSearchQuery('');
+      setActiveCategory('all');
+    },
+    'app-search-filter'
+  );
 
   // Toast feedback with type (success, error, info)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);

@@ -5,6 +5,7 @@ import type { UploadableImage } from '../services/db';
 import { compressImage, isHeicFile } from '../utils/imageCompressor';
 import { getLabelBadgeClass } from '../utils/labelColors';
 import { ImagePreviewModal } from './ImagePreviewModal';
+import { useBackHandler } from '../hooks/useBackHandler';
 
 export interface PicItem {
   id: string;
@@ -216,6 +217,10 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
       cleanupBlobs(picsRef.current);
     };
   }, [cleanupBlobs]);
+
+  // Step-by-step back handlers for mobile swipe-back gestures & Android back button
+  useBackHandler(isOpen && previewIndex === null && !isSubmitting, handleModalClose, 'add-prompt');
+  useBackHandler(isOpen && previewIndex !== null, () => setPreviewIndex(null), 'add-preview');
 
   if (!isOpen) return null;
 
