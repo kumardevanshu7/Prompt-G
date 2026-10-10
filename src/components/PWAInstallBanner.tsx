@@ -30,10 +30,14 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onInstalled 
     }
 
     // Check if dismissed recently (within 2 days)
-    const dismissedAt = localStorage.getItem('promptg_pwa_dismissed');
-    if (dismissedAt) {
-      const diffDays = (Date.now() - parseInt(dismissedAt, 10)) / (1000 * 60 * 60 * 24);
-      if (diffDays < 2) return;
+    try {
+      const dismissedAt = localStorage.getItem('promptg_pwa_dismissed');
+      if (dismissedAt) {
+        const diffDays = (Date.now() - parseInt(dismissedAt, 10)) / (1000 * 60 * 60 * 24);
+        if (diffDays < 2) return;
+      }
+    } catch {
+      // Storage access blocked or unavailable
     }
 
     const handleBeforeInstallPrompt = (e: Event) => {
@@ -78,7 +82,9 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onInstalled 
 
   const handleDismiss = () => {
     setIsVisible(false);
-    localStorage.setItem('promptg_pwa_dismissed', Date.now().toString());
+    try {
+      localStorage.setItem('promptg_pwa_dismissed', Date.now().toString());
+    } catch {}
   };
 
   if (isInstalled || !isVisible || !deferredPrompt) {

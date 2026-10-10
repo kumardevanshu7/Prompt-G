@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Plus, LogIn, LogOut, X, Settings, FolderKanban, Home } from 'lucide-react';
+import { Search, Plus, LogIn, LogOut, X, Settings, FolderKanban, Home, BarChart3 } from 'lucide-react';
 import type { UserProfile } from '../types/prompt';
 
 interface HeaderProps {
@@ -10,8 +10,8 @@ interface HeaderProps {
   userProfile: UserProfile | null;
   onGoogleSignIn: () => void;
   onLogout: () => void;
-  activeTab?: 'home' | 'categories' | 'labels';
-  onTabChange?: (tab: 'home' | 'categories' | 'labels') => void;
+  activeTab?: 'home' | 'categories' | 'labels' | 'analytics';
+  onTabChange?: (tab: 'home' | 'categories' | 'labels' | 'analytics') => void;
   publishedCount?: number;
 }
 
@@ -198,6 +198,17 @@ export const Header: React.FC<HeaderProps> = ({
                   {publishedCount}
                 </span>
               )}
+            </button>
+            <button
+              onClick={() => onTabChange('analytics')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'analytics'
+                  ? 'bg-zinc-900 text-white shadow-xs'
+                  : 'text-zinc-600 hover:text-zinc-950'
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>Analytics</span>
             </button>
           </div>
         </div>

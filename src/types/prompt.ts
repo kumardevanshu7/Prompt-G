@@ -1,3 +1,5 @@
+export type BypassDifficulty = 'easily_pass' | 'difficult_to_bypass';
+
 export interface PromptItem {
   id: string;
   title: string;
@@ -7,13 +9,13 @@ export interface PromptItem {
   labels: string[];
   created_at: string;
   updated_at?: string;
-  rating?: number;
-  is_verified?: boolean;
   userId?: string;
   userName?: string;
   enableCheckmark?: boolean; // When true, prompt tracks usage status (Pending vs Used)
   isUsed?: boolean; // false = Pending / No (light red), true = Used / Yes (checked)
   publishCategory?: 'direct' | 'unreleased'; // Published sub-category destination
+  modelUsed?: string; // 'Nano Pro', 'Nano 2.1', 'Both', or custom model name
+  modelBypass?: Record<string, BypassDifficulty>; // e.g. { 'Nano Pro': 'easily_pass', 'Nano 2.1': 'difficult_to_bypass' }
 }
 
 export interface UserProfile {
@@ -27,10 +29,3 @@ export interface UserProfile {
   securityAnswer?: string;
 }
 
-export type BackendProvider = 'firebase_firestore' | 'supabase' | 'local';
-
-export interface DatabaseConfig {
-  provider: BackendProvider;
-  supabaseUrl?: string;
-  supabaseAnonKey?: string;
-}

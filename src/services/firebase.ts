@@ -14,6 +14,8 @@ import {
   getDocs,
   getDoc,
   setDoc,
+  updateDoc,
+  deleteField,
   addDoc,
   deleteDoc,
   doc,
@@ -83,8 +85,15 @@ export const getUserProfile = async (uid: string): Promise<UserProfile | null> =
 };
 
 export const saveUserProfile = async (profile: UserProfile): Promise<void> => {
+  const cleanProfile: Record<string, any> = {};
+  for (const [key, value] of Object.entries(profile)) {
+    if (value !== undefined) {
+      cleanProfile[key] = value;
+    }
+  }
+
   await setDoc(doc(db, 'users', profile.uid), {
-    ...profile,
+    ...cleanProfile,
     updatedAt: new Date().toISOString(),
   }, { merge: true });
 };
@@ -107,6 +116,8 @@ const mapPromptDoc = (id: string, data: Record<string, any>): PromptItem => ({
   enableCheckmark: data.enableCheckmark === true,
   isUsed: data.isUsed === true,
   publishCategory: data.publishCategory || (Array.isArray(data.labels) && data.labels.some((l: string) => (l || '').toLowerCase() === 'unreleased') ? 'unreleased' : (data.isUsed ? 'direct' : undefined)),
+  modelUsed: data.modelUsed || undefined,
+  modelBypass: data.modelBypass || undefined,
 });
 
 export const fetchFirebasePrompts = async (userId: string): Promise<PromptItem[]> => {
@@ -152,6 +163,14 @@ export const insertFirebasePrompt = async (
     row.publishCategory = 'direct';
   }
 
+  // Only assign model fields if defined
+  if (prompt.modelUsed) {
+    row.modelUsed = prompt.modelUsed;
+  }
+  if (prompt.modelBypass && Object.keys(prompt.modelBypass).length > 0) {
+    row.modelBypass = prompt.modelBypass;
+  }
+
   const docRef = await addDoc(collection(db, 'prompts'), row);
   return {
     id: docRef.id,
@@ -166,29 +185,30 @@ export const insertFirebasePrompt = async (
     enableCheckmark: row.enableCheckmark,
     isUsed: row.isUsed,
     publishCategory: row.publishCategory,
+    modelUsed: row.modelUsed,
+    modelBypass: row.modelBypass,
   };
 };
 
 export const updateFirebasePrompt = async (
   id: string,
-  updates: Partial<PromptItem>
+  updates: Partial<PromptItem> | Record<string, any>
 ): Promise<void> => {
-  // Strip out any undefined values so Firestore does not reject the document write
+  // Strip out undefined values; map null to deleteField() so cleared fields actually get deleted
   const cleanUpdates: Record<string, any> = {};
   for (const [key, value] of Object.entries(updates)) {
-    if (value !== undefined) {
+    if (value === null) {
+      cleanUpdates[key] = deleteField();
+    } else if (value !== undefined) {
       cleanUpdates[key] = value;
     }
   }
 
-  await setDoc(
-    doc(db, 'prompts', id),
-    {
-      ...cleanUpdates,
-      updated_at: new Date().toISOString(),
-    },
-    { merge: true }
-  );
+  // Use updateDoc to avoid creating phantom/ghost documents if document was deleted elsewhere
+  await updateDoc(doc(db, 'prompts', id), {
+    ...cleanUpdates,
+    updated_at: new Date().toISOString(),
+  });
 };
 
 export const deleteFirebasePrompt = async (id: string): Promise<void> => {
@@ -206,13 +226,13 @@ export const deleteAllFirebasePrompts = async (userId: string): Promise<string[]
   const snap = await getDocs(q);
 
   const allImageUrls: string[] = [];
-  const deletions = snap.docs.map((d) => {
+  snap.docs.forEach((d) => {
     const data = d.data();
     if (Array.isArray(data.images)) allImageUrls.push(...data.images);
-    return deleteDoc(d.ref);
   });
 
-  await Promise.all(deletions);
+  const deletions = snap.docs.map((d) => deleteDoc(d.ref));
+  await Promise.allSettled(deletions);
   return allImageUrls;
 };
 

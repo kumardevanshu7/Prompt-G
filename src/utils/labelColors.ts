@@ -8,7 +8,15 @@
  * - Others => Neutral zinc
  */
 
-export type LabelBrand = 'instagram' | 'snapchat' | 'gemini' | 'chatgpt' | 'unreleased' | 'default';
+export type LabelBrand =
+  | 'instagram'
+  | 'snapchat'
+  | 'gemini'
+  | 'chatgpt'
+  | 'unreleased'
+  | 'success20'
+  | 'uncensored'
+  | 'default';
 
 export function getLabelBrand(tag: string): LabelBrand {
   const norm = (tag || '').trim().toLowerCase().replace(/^#+/, '');
@@ -22,16 +30,10 @@ export function getLabelBrand(tag: string): LabelBrand {
     return 'gemini';
   }
   if (
-    norm === 'chatgpt' ||
-    norm === 'gpt' ||
-    norm === 'chat-gpt' ||
-    norm === 'chat_gpt' ||
-    norm === 'gpt4' ||
-    norm === 'gpt-4' ||
-    norm.startsWith('chatgpt-') ||
-    norm.startsWith('chatgpt_') ||
-    norm.startsWith('gpt-') ||
-    norm.startsWith('gpt_')
+    /^(chat-?gpt|gpt)([-_]?[0-9a-z.]+)?$/i.test(norm) ||
+    norm === 'openai' ||
+    norm.startsWith('openai-') ||
+    norm.startsWith('openai_')
   ) {
     return 'chatgpt';
   }
@@ -45,7 +47,39 @@ export function getLabelBrand(tag: string): LabelBrand {
   ) {
     return 'unreleased';
   }
+  if (
+    norm.includes('20%') ||
+    norm === '20' ||
+    norm === '20-success' ||
+    norm === '20_success' ||
+    norm === '20% success' ||
+    norm === '20-pass' ||
+    norm === '20% pass' ||
+    norm === '20success'
+  ) {
+    return 'success20';
+  }
+  if (
+    norm === 'uncensored' ||
+    norm === 'uncensor' ||
+    norm === 'nsfw' ||
+    norm.startsWith('uncensored-') ||
+    norm.startsWith('uncensored_')
+  ) {
+    return 'uncensored';
+  }
   return 'default';
+}
+
+/**
+ * Returns leading icon for special tags (e.g. 🚫 for uncensored)
+ */
+export function getLabelIcon(tag: string): string | null {
+  const brand = getLabelBrand(tag);
+  if (brand === 'uncensored') {
+    return '🚫';
+  }
+  return null;
 }
 
 /**
@@ -110,6 +144,28 @@ export function getLabelBadgeClass(
     }
     // Light blue for tags & filters
     return 'bg-blue-50 text-blue-700 border border-blue-200 font-semibold hover:bg-blue-100';
+  }
+
+  // 20% Success: Brown light
+  if (brand === 'success20') {
+    if (variant === 'activePill') {
+      return 'bg-[#783e19] text-white font-bold shadow-md shadow-[#783e19]/25';
+    }
+    if (variant === 'card') {
+      return 'bg-[#783e19]/90 backdrop-blur-xs text-white font-bold shadow-xs';
+    }
+    return 'bg-[#fbf4ee] text-[#783e19] border border-[#e8d2c0] font-semibold hover:bg-[#f5e9df]';
+  }
+
+  // Uncensored: Light red with ban styling
+  if (brand === 'uncensored') {
+    if (variant === 'activePill') {
+      return 'bg-rose-600 text-white font-bold shadow-md shadow-rose-600/25';
+    }
+    if (variant === 'card') {
+      return 'bg-rose-600/95 backdrop-blur-xs text-white font-bold shadow-xs';
+    }
+    return 'bg-rose-100 text-rose-800 border border-rose-300 font-semibold hover:bg-rose-200';
   }
 
   // Default Neutral styling

@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Upload, Plus, Trash2, Sparkles, Tag, AlertCircle, Link, Loader2, ChevronDown, ListOrdered, AlignLeft, Eye } from 'lucide-react';
+import { X, Upload, Plus, Trash2, Sparkles, Tag, AlertCircle, Link, Loader2, ChevronDown, ListOrdered, AlignLeft, Eye, Cpu } from 'lucide-react';
 import type { PromptItem } from '../types/prompt';
 import type { UploadableImage } from '../services/db';
-import { compressImage } from '../utils/imageCompressor';
+import { compressImage, isHeicFile } from '../utils/imageCompressor';
 import { getLabelBadgeClass } from '../utils/labelColors';
 import { ImagePreviewModal } from './ImagePreviewModal';
 
@@ -25,7 +25,9 @@ interface AddPromptModalProps {
 }
 
 const MAX_IMAGES = 5;
-const MAX_FILE_SIZE_MB = 10;
+const MAX_RAW_FILE_SIZE_MB = 25; // Pre-compression limit for raw camera photos
+const MAX_FINAL_FILE_SIZE_MB = 10; // Post-compression upload limit
+const DEFAULT_MODELS = ['Nano Pro', 'Nano 2.1', 'Both'];
 
 export const AddPromptModal: React.FC<AddPromptModalProps> = ({
   isOpen,
@@ -46,6 +48,24 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
   const [labels, setLabels] = useState<string[]>([]);
   const [currentLabelInput, setCurrentLabelInput] = useState('');
   const [enableCheckmark, setEnableCheckmark] = useState(false);
+
+  // Model & Bypass difficulty state
+  const [customModels, setCustomModels] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('promptg_custom_models');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [selectedModel, setSelectedModel] = useState<string>('Nano Pro');
+  const [isAddingModel, setIsAddingModel] = useState<boolean>(false);
+  const [newModelInput, setNewModelInput] = useState<string>('');
+  const [modelBypass, setModelBypass] = useState<Record<string, 'easily_pass' | 'difficult_to_bypass'>>({
+    'Nano Pro': 'easily_pass',
+    'Nano 2.1': 'easily_pass',
+  });
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [uploadPercentage, setUploadPercentage] = useState<number>(0);
@@ -119,6 +139,32 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
     setDescMode('text');
   };
 
+  const handleAddCustomModel = () => {
+    const clean = newModelInput.trim();
+    if (!clean) return;
+    if (!DEFAULT_MODELS.includes(clean) && !customModels.includes(clean)) {
+      const updated = [...customModels, clean];
+      setCustomModels(updated);
+      try {
+        localStorage.setItem('promptg_custom_models', JSON.stringify(updated));
+      } catch {}
+    }
+    setSelectedModel(clean);
+    setModelBypass((prev) => ({
+      ...prev,
+      [clean]: prev[clean] || 'easily_pass',
+    }));
+    setNewModelInput('');
+    setIsAddingModel(false);
+  };
+
+  const handleSetBypass = (modelName: string, status: 'easily_pass' | 'difficult_to_bypass') => {
+    setModelBypass((prev) => ({
+      ...prev,
+      [modelName]: status,
+    }));
+  };
+
   // Reset form completely
   const resetForm = useCallback(() => {
     cleanupBlobs(picsRef.current);
@@ -132,6 +178,9 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
     setLabels([]);
     setCurrentLabelInput('');
     setEnableCheckmark(false);
+    setSelectedModel('Nano Pro');
+    setIsAddingModel(false);
+    setNewModelInput('');
     setShowPrevDesc(false);
     setError(null);
     setUploadProgress(null);
@@ -145,17 +194,21 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
     onClose();
   }, [isSubmitting, resetForm, onClose]);
 
-  // Close on Escape key
+  // Close on Escape key (if preview lightbox is open, close only the preview)
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !isSubmitting) {
+        if (previewIndex !== null) {
+          setPreviewIndex(null);
+          return;
+        }
         handleModalClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, isSubmitting, handleModalClose]);
+  }, [isOpen, isSubmitting, previewIndex, handleModalClose]);
 
   // Clean up object URLs on unmount
   useEffect(() => {
@@ -190,21 +243,34 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
     const newPics: PicItem[] = [];
 
     for (const file of filesToProcess) {
-      // Validate file type
+      // 1. Detect and cleanly reject unsupported iPhone HEIC/HEIF files
+      if (isHeicFile(file)) {
+        setError(`"${file.name}" is an iPhone HEIC/HEIF photo. Browsers cannot decode raw HEIC photos. Please choose a JPG, PNG, or WebP photo.`);
+        continue;
+      }
+
+      // 2. Validate file type
       if (!file.type.startsWith('image/')) {
         setError(`"${file.name}" is not a supported image file.`);
         continue;
       }
 
-      // Validate size (10MB max)
-      if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-        setError(`"${file.name}" exceeds the ${MAX_FILE_SIZE_MB}MB size limit.`);
+      // 3. Validate raw file size before compression (up to 25MB)
+      if (file.size > MAX_RAW_FILE_SIZE_MB * 1024 * 1024) {
+        setError(`"${file.name}" exceeds the ${MAX_RAW_FILE_SIZE_MB}MB raw file limit.`);
         continue;
       }
 
       try {
         // Compress image before creating preview/uploading
         const compressed = await compressImage(file);
+
+        // 4. Validate post-compression size (must fit within 10MB)
+        if (compressed.size > MAX_FINAL_FILE_SIZE_MB * 1024 * 1024) {
+          setError(`"${file.name}" exceeds ${MAX_FINAL_FILE_SIZE_MB}MB even after compression.`);
+          continue;
+        }
+
         const objectUrl = URL.createObjectURL(compressed);
         newPics.push({
           id: crypto.randomUUID(),
@@ -212,7 +278,11 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
           file: compressed,
         });
       } catch {
-        // Fallback to original file
+        // Fallback to original file if compression failed
+        if (file.size > MAX_FINAL_FILE_SIZE_MB * 1024 * 1024) {
+          setError(`"${file.name}" exceeds the ${MAX_FINAL_FILE_SIZE_MB}MB size limit.`);
+          continue;
+        }
         const objectUrl = URL.createObjectURL(file);
         newPics.push({
           id: crypto.randomUUID(),
@@ -328,6 +398,15 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
         url: p.file ? undefined : p.src,
       }));
 
+      // Prepare bypass map for the selected model(s)
+      const relevantBypass: Record<string, 'easily_pass' | 'difficult_to_bypass'> = {};
+      if (selectedModel === 'Both') {
+        relevantBypass['Nano Pro'] = modelBypass['Nano Pro'] || 'easily_pass';
+        relevantBypass['Nano 2.1'] = modelBypass['Nano 2.1'] || 'easily_pass';
+      } else {
+        relevantBypass[selectedModel] = modelBypass[selectedModel] || 'easily_pass';
+      }
+
       await onSave(
         {
           title: title.trim(),
@@ -336,6 +415,8 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
           labels: labels.length > 0 ? labels : ['Prompt'],
           enableCheckmark,
           isUsed: false, // Default is "No" (Pending) as requested by user
+          modelUsed: selectedModel,
+          modelBypass: relevantBypass,
         },
         uploadableList,
         (current, total) => {
@@ -599,6 +680,177 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
             />
           </div>
 
+          {/* Model Selection & Bypass Success Ratio */}
+          <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200/90 space-y-3.5">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <Cpu className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Which model is used?</span>
+                </label>
+                {!isAddingModel && (
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingModel(true)}
+                    className="text-xs font-bold text-zinc-800 hover:text-black flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Model</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Model Pills */}
+              <div className="flex flex-wrap gap-2">
+                {[...DEFAULT_MODELS, ...customModels].map((m) => {
+                  const isSelected = selectedModel === m;
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setSelectedModel(m)}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-zinc-900 text-white shadow-xs'
+                          : 'bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-100'
+                      }`}
+                    >
+                      {m === 'Both' ? 'Both (Nano Pro & 2.1)' : m}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Add Custom Model Field */}
+              {isAddingModel && (
+                <div className="flex items-center gap-2 mt-2.5 animate-in fade-in duration-150">
+                  <input
+                    type="text"
+                    value={newModelInput}
+                    onChange={(e) => setNewModelInput(e.target.value)}
+                    placeholder="New model name (e.g. Flux, SDXL)..."
+                    className="flex-1 px-3 py-1.5 rounded-xl bg-white border border-zinc-300 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddCustomModel}
+                    className="px-3 py-1.5 rounded-xl bg-zinc-900 text-white text-xs font-bold cursor-pointer"
+                  >
+                    Add
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddingModel(false);
+                      setNewModelInput('');
+                    }}
+                    className="px-2.5 py-1.5 rounded-xl bg-zinc-200 text-zinc-700 text-xs font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Success Ratio / Bypass Difficulty Selector */}
+            <div className="pt-3 border-t border-zinc-200/80 space-y-2">
+              <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider">
+                Success Ratio / Bypass Difficulty
+              </label>
+
+              {selectedModel === 'Both' ? (
+                <div className="space-y-2">
+                  {/* Nano Pro */}
+                  <div className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-zinc-800">Nano Pro:</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSetBypass('Nano Pro', 'easily_pass')}
+                        className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                          (modelBypass['Nano Pro'] || 'easily_pass') === 'easily_pass'
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                        }`}
+                      >
+                        ✓ Easily Pass
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSetBypass('Nano Pro', 'difficult_to_bypass')}
+                        className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                          modelBypass['Nano Pro'] === 'difficult_to_bypass'
+                            ? 'bg-amber-600 text-white shadow-xs'
+                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                        }`}
+                      >
+                        ⚠ Difficult to Bypass
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Nano 2.1 */}
+                  <div className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-zinc-800">Nano 2.1:</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSetBypass('Nano 2.1', 'easily_pass')}
+                        className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                          (modelBypass['Nano 2.1'] || 'easily_pass') === 'easily_pass'
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                        }`}
+                      >
+                        ✓ Easily Pass
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSetBypass('Nano 2.1', 'difficult_to_bypass')}
+                        className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                          modelBypass['Nano 2.1'] === 'difficult_to_bypass'
+                            ? 'bg-amber-600 text-white shadow-xs'
+                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                        }`}
+                      >
+                        ⚠ Difficult to Bypass
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Single Model Selected */
+                <div className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-zinc-800">{selectedModel}:</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleSetBypass(selectedModel, 'easily_pass')}
+                      className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                        (modelBypass[selectedModel] || 'easily_pass') === 'easily_pass'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                      }`}
+                    >
+                      ✓ Easily Pass
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetBypass(selectedModel, 'difficult_to_bypass')}
+                      className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                        modelBypass[selectedModel] === 'difficult_to_bypass'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                      }`}
+                    >
+                      ⚠ Difficult to Bypass
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* 4. Images Section (Ordered list with max 5) */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
@@ -688,7 +940,7 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
                       Click to choose images from device
                     </span>
                     <p className="text-[11px] text-zinc-400 mt-0.5">
-                      JPG, PNG, WebP up to 10MB each (Auto-compressed)
+                      JPG, PNG, WebP (Photos up to 25MB auto-compressed)
                     </p>
                   </div>
                 </label>

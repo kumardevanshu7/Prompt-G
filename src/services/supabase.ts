@@ -13,8 +13,8 @@ export const DEFAULT_SUPABASE_URL = 'https://kgsuvwatfwjxeomjvtvr.supabase.co';
 export const DEFAULT_SUPABASE_KEY = 'sb_publishable_Bs8yqiPxgL-lYDeykdDOhw_gvMyJd92';
 
 export const getSupabaseClient = (url?: string, anonKey?: string): SupabaseClient | null => {
-  const envUrl = url || localStorage.getItem('promptg_supabase_url') || import.meta.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
-  const envKey = anonKey || localStorage.getItem('promptg_supabase_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_KEY;
+  const envUrl = url || import.meta.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+  const envKey = anonKey || import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_KEY;
 
   if (!envUrl || !envKey) {
     return null;
@@ -93,25 +93,57 @@ export const uploadImageToSupabase = async (
 export const deleteImagesFromSupabase = async (
   imageUrls: string[],
   customClient?: SupabaseClient | null
-): Promise<void> => {
-  if (!imageUrls || imageUrls.length === 0) return;
+): Promise<{ deleted: number; failed: number }> => {
+  if (!imageUrls || imageUrls.length === 0) return { deleted: 0, failed: 0 };
   const client = customClient || getSupabaseClient();
-  if (!client) return;
+  if (!client) return { deleted: 0, failed: 0 };
 
-  for (const url of imageUrls) {
-    if (!url || typeof url !== 'string') continue;
+  // Group paths by bucket
+  const bucketPaths: Record<string, string[]> = {};
+  BUCKET_NAMES.forEach((b) => (bucketPaths[b] = []));
+
+  for (const rawUrl of imageUrls) {
+    if (!rawUrl || typeof rawUrl !== 'string') continue;
 
     for (const bucket of BUCKET_NAMES) {
-      const regex = new RegExp(`/${bucket}/(.+)$`);
-      const match = url.match(regex);
-      if (match && match[1]) {
-        const filePath = decodeURIComponent(match[1]);
-        try {
-          await client.storage.from(bucket).remove([filePath]);
-        } catch (err) {
-          console.warn(`Could not delete image ${filePath} from Supabase bucket ${bucket}:`, err);
+      const marker = `/${bucket}/`;
+      const idx = rawUrl.indexOf(marker);
+      if (idx !== -1) {
+        // Strip query string and hashes
+        const pathPart = rawUrl.substring(idx + marker.length).split('?')[0].split('#')[0];
+        const filePath = decodeURIComponent(pathPart);
+        if (filePath && !bucketPaths[bucket].includes(filePath)) {
+          bucketPaths[bucket].push(filePath);
         }
+        break;
       }
     }
   }
+
+  let totalDeleted = 0;
+  let totalFailed = 0;
+
+  // Batch delete in chunks of 50
+  for (const [bucket, paths] of Object.entries(bucketPaths)) {
+    if (paths.length === 0) continue;
+
+    const chunkSize = 50;
+    for (let i = 0; i < paths.length; i += chunkSize) {
+      const chunk = paths.slice(i, i + chunkSize);
+      try {
+        const { data, error } = await client.storage.from(bucket).remove(chunk);
+        if (error) {
+          console.warn(`Supabase delete error on ${bucket}:`, error.message);
+          totalFailed += chunk.length;
+        } else {
+          totalDeleted += (data?.length ?? chunk.length);
+        }
+      } catch (err) {
+        console.warn(`Network error deleting images from ${bucket}:`, err);
+        totalFailed += chunk.length;
+      }
+    }
+  }
+
+  return { deleted: totalDeleted, failed: totalFailed };
 };

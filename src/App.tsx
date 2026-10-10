@@ -26,6 +26,7 @@ import { OnboardingModal } from './components/OnboardingModal';
 import { BottomNav } from './components/BottomNav';
 import { ExploreView } from './components/ExploreView';
 import { CategoriesView } from './components/CategoriesView';
+import { AnalyticsView } from './components/AnalyticsView';
 import { PublishCategoryModal } from './components/PublishCategoryModal';
 import { EmptyState } from './components/EmptyState';
 import { WelcomeScreen } from './components/WelcomeScreen';
@@ -59,8 +60,8 @@ export function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null);
 
-  // Active Tab: 'home' (All Prompts Vault), 'categories' (Direct vs Unreleased), 'labels' (Explore List)
-  const [activeTab, setActiveTab] = useState<'home' | 'categories' | 'labels'>('home');
+  // Active Tab: 'home' (All Prompts Vault), 'categories' (Direct vs Unreleased), 'labels' (Explore List), 'analytics' (Stats)
+  const [activeTab, setActiveTab] = useState<'home' | 'categories' | 'labels' | 'analytics'>('home');
   const [publishTargetPrompt, setPublishTargetPrompt] = useState<PromptItem | null>(null);
 
   // Lenis Smooth Momentum Scroll (pauses when any full-screen modal is open)
@@ -414,7 +415,7 @@ export function App() {
           p.id === id ? { ...p, enableCheckmark, isUsed: enableCheckmark ? (p.isUsed ?? false) : false } : p
         )
       );
-      await updatePromptStatus(id, { enableCheckmark, isUsed: false });
+      await updatePromptStatus(id, { enableCheckmark, isUsed: false, publishCategory: null as any });
       showToast(
         enableCheckmark
           ? 'Social tracking enabled! (🔴 Red dot added)'
@@ -433,7 +434,7 @@ export function App() {
   }, [prompts]);
 
   // Bottom Nav & Header navigation handler
-  const handleTabChange = (tab: 'home' | 'categories' | 'labels') => {
+  const handleTabChange = (tab: 'home' | 'categories' | 'labels' | 'analytics') => {
     setActiveTab(tab);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -494,8 +495,8 @@ export function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6">
-        {/* Category Filter Pills (hidden in Categories view since it has its own Direct/Unreleased subcategories) */}
-        {activeTab !== 'categories' && (
+        {/* Category Filter Pills (hidden in Categories and Analytics views) */}
+        {activeTab !== 'categories' && activeTab !== 'analytics' && (
           <CategoryPills
             categories={categories}
             activeCategory={activeCategory}
@@ -504,7 +505,7 @@ export function App() {
           />
         )}
 
-        {/* Dynamic Prompts View: Categories vs Explore Horizontal Reels vs Home Grid */}
+        {/* Dynamic Prompts View: Categories vs Analytics vs Explore Horizontal Reels vs Home Grid */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 text-zinc-400">
             <RefreshCw className="w-8 h-8 animate-spin mb-3 text-zinc-300" />
@@ -518,6 +519,16 @@ export function App() {
             onCopyPrompt={handleCopyPrompt}
             onToggleUsed={handleToggleUsed}
             searchQuery={searchQuery}
+          />
+        ) : activeTab === 'analytics' ? (
+          /* Analytics Dashboard View */
+          <AnalyticsView
+            prompts={prompts}
+            onSelectCategory={(cat) => {
+              setActiveCategory(cat);
+              setActiveTab('home');
+            }}
+            onNavigateTab={handleTabChange}
           />
         ) : filteredPrompts.length === 0 ? (
           <EmptyState

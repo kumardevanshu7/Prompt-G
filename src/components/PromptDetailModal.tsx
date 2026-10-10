@@ -28,10 +28,11 @@ import {
   KeyRound,
   X,
   ChevronDown,
+  Cpu,
 } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
-import { getLabelBadgeClass } from '../utils/labelColors';
-import { compressImage } from '../utils/imageCompressor';
+import { getLabelBadgeClass, getLabelIcon } from '../utils/labelColors';
+import { compressImage, isHeicFile } from '../utils/imageCompressor';
 import { ImagePreviewModal } from './ImagePreviewModal';
 
 export interface EditPicItem {
@@ -109,12 +110,44 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
   const [editEnableCheckmark, setEditEnableCheckmark] = useState(false);
   const [editIsUsed, setEditIsUsed] = useState(false);
   const [editPublishCategory, setEditPublishCategory] = useState<'direct' | 'unreleased'>('direct');
+
+  // Model & Bypass difficulty edit state
+  const DEFAULT_MODELS = ['Nano Pro', 'Nano 2.1', 'Both'];
+  const [customModels, setCustomModels] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('promptg_custom_models');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [editModelUsed, setEditModelUsed] = useState<string>('Nano Pro');
+  const [isAddingModel, setIsAddingModel] = useState<boolean>(false);
+  const [newModelInput, setNewModelInput] = useState<string>('');
+  const [editModelBypass, setEditModelBypass] = useState<Record<string, 'easily_pass' | 'difficult_to_bypass'>>({
+    'Nano Pro': 'easily_pass',
+    'Nano 2.1': 'easily_pass',
+  });
+
   const [editPics, setEditPics] = useState<EditPicItem[]>([]);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [saveProgress, setSaveProgress] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const editPicsRef = useRef<EditPicItem[]>([]);
+  editPicsRef.current = editPics;
+
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      editPicsRef.current.forEach((p) => {
+        if (p.file && p.src.startsWith('blob:')) {
+          URL.revokeObjectURL(p.src);
+        }
+      });
+    };
+  }, []);
 
   // Reset states when item changes
   useEffect(() => {
@@ -138,6 +171,13 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     setEditEnableCheckmark(Boolean(promptItem.enableCheckmark));
     setEditIsUsed(Boolean(promptItem.isUsed));
     setEditPublishCategory(promptItem.publishCategory || 'direct');
+    setEditModelUsed(promptItem.modelUsed || 'Nano Pro');
+    setEditModelBypass(
+      promptItem.modelBypass || {
+        'Nano Pro': 'easily_pass',
+        'Nano 2.1': 'easily_pass',
+      }
+    );
 
     const rawDesc = promptItem.description || '';
     setEditDescription(rawDesc);
@@ -168,6 +208,10 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     if (!item) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !isDeleting && !isSavingEdit) {
+        if (isPreviewOpen) {
+          setIsPreviewOpen(false);
+          return;
+        }
         if (showEditAuthModal) {
           setShowEditAuthModal(false);
         } else if (isEditingMode) {
@@ -181,7 +225,7 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [item, isDeleting, isSavingEdit, showEditAuthModal, isEditingMode, showConfirmDelete, onClose]);
+  }, [item, isDeleting, isSavingEdit, isPreviewOpen, showEditAuthModal, isEditingMode, showConfirmDelete, onClose]);
 
   if (!item) return null;
 
@@ -300,17 +344,65 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     setEditDescMode('text');
   };
 
+  const cleanupEditBlobs = useCallback((picsList: EditPicItem[]) => {
+    picsList.forEach((p) => {
+      if (p.file && p.src.startsWith('blob:')) {
+        URL.revokeObjectURL(p.src);
+      }
+    });
+  }, []);
+
   const handleAddEditLabel = () => {
-    const clean = editCurrentLabelInput.trim().replace(/^#+/, '');
-    if (clean && !editLabels.includes(clean)) {
-      setEditLabels([...editLabels, clean]);
-      setEditCurrentLabelInput('');
-    }
+    const raw = editCurrentLabelInput.trim();
+    if (!raw) return;
+
+    const parts = raw
+      .split(',')
+      .map((s) => s.trim().replace(/^#+/, ''))
+      .filter((s) => s.length > 0);
+
+    const updated = [...editLabels];
+    parts.forEach((tag) => {
+      const lower = tag.toLowerCase();
+      if (!updated.some((l) => l.toLowerCase() === lower)) {
+        updated.push(tag);
+      }
+    });
+
+    setEditLabels(updated);
+    setEditCurrentLabelInput('');
   };
 
   const handleRemoveEditLabel = (lblToRemove: string) => {
     setEditLabels(editLabels.filter((l) => l !== lblToRemove));
   };
+
+  const handleAddCustomModel = () => {
+    const trimmed = newModelInput.trim();
+    if (!trimmed) return;
+    if (!DEFAULT_MODELS.includes(trimmed) && !customModels.includes(trimmed)) {
+      const updated = [...customModels, trimmed];
+      setCustomModels(updated);
+      try {
+        localStorage.setItem('promptg_custom_models', JSON.stringify(updated));
+      } catch (err) {
+        console.error('Failed to save custom model:', err);
+      }
+    }
+    setEditModelUsed(trimmed);
+    setIsAddingModel(false);
+    setNewModelInput('');
+  };
+
+  const handleSetEditBypass = (modelName: string, difficulty: 'easily_pass' | 'difficult_to_bypass') => {
+    setEditModelBypass((prev) => ({
+      ...prev,
+      [modelName]: difficulty,
+    }));
+  };
+
+  const MAX_RAW_FILE_SIZE_MB = 25;
+  const MAX_FINAL_FILE_SIZE_MB = 10;
 
   const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
@@ -326,8 +418,33 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     const newItems: EditPicItem[] = [];
 
     for (const file of filesToProcess) {
+      // 1. Detect and cleanly reject unsupported iPhone HEIC/HEIF files
+      if (isHeicFile(file)) {
+        setEditError(`"${file.name}" is an iPhone HEIC/HEIF photo. Browsers cannot decode raw HEIC photos. Please choose a JPG, PNG, or WebP photo.`);
+        continue;
+      }
+
+      // 2. Validate file type
+      if (!file.type.startsWith('image/')) {
+        setEditError(`"${file.name}" is not a supported image file.`);
+        continue;
+      }
+
+      // 3. Validate raw file size before compression (up to 25MB)
+      if (file.size > MAX_RAW_FILE_SIZE_MB * 1024 * 1024) {
+        setEditError(`"${file.name}" exceeds the ${MAX_RAW_FILE_SIZE_MB}MB raw file limit.`);
+        continue;
+      }
+
       try {
         const compressed = await compressImage(file);
+
+        // 4. Validate post-compression size (must fit within 10MB)
+        if (compressed.size > MAX_FINAL_FILE_SIZE_MB * 1024 * 1024) {
+          setEditError(`"${file.name}" exceeds ${MAX_FINAL_FILE_SIZE_MB}MB even after compression.`);
+          continue;
+        }
+
         const objUrl = URL.createObjectURL(compressed);
         newItems.push({
           id: `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -336,7 +453,18 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
           isExisting: false,
         });
       } catch (err) {
-        console.error('Failed to process image:', err);
+        console.error('Failed to compress image:', err);
+        if (file.size > MAX_FINAL_FILE_SIZE_MB * 1024 * 1024) {
+          setEditError(`"${file.name}" exceeds the ${MAX_FINAL_FILE_SIZE_MB}MB size limit.`);
+          continue;
+        }
+        const objUrl = URL.createObjectURL(file);
+        newItems.push({
+          id: `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          src: objUrl,
+          file,
+          isExisting: false,
+        });
       }
     }
 
@@ -354,6 +482,11 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     });
   };
 
+  const handleCancelEdit = () => {
+    cleanupEditBlobs(editPics);
+    setIsEditingMode(false);
+  };
+
   const handleSaveEdit = async () => {
     if (!editTitle.trim()) {
       setEditError('Title is required');
@@ -361,6 +494,10 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     }
     if (!editPrompt.trim()) {
       setEditError('Prompt text is required');
+      return;
+    }
+    if (editPics.length === 0) {
+      setEditError('Please keep at least 1 image.');
       return;
     }
 
@@ -374,6 +511,17 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
         url: p.file ? undefined : p.src,
       }));
 
+      let finalLabels = [...editLabels];
+      if (editEnableCheckmark && editIsUsed) {
+        if (editPublishCategory === 'unreleased') {
+          if (!finalLabels.some((l) => l.toLowerCase() === 'unreleased')) {
+            finalLabels.push('unreleased');
+          }
+        } else if (editPublishCategory === 'direct') {
+          finalLabels = finalLabels.filter((l) => l.toLowerCase() !== 'unreleased');
+        }
+      }
+
       if (onUpdatePrompt) {
         await onUpdatePrompt(
           item.id,
@@ -381,13 +529,12 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
             title: editTitle.trim(),
             description: editDescription.trim(),
             prompt: editPrompt.trim(),
-            labels:
-              editEnableCheckmark && editIsUsed && editPublishCategory === 'unreleased' && !editLabels.includes('unreleased')
-                ? [...editLabels, 'unreleased']
-                : editLabels,
+            labels: finalLabels,
             enableCheckmark: editEnableCheckmark,
             isUsed: editEnableCheckmark ? editIsUsed : false,
-            publishCategory: editEnableCheckmark && editIsUsed ? editPublishCategory : undefined,
+            publishCategory: editEnableCheckmark && editIsUsed ? editPublishCategory : (null as any),
+            modelUsed: editModelUsed,
+            modelBypass: editModelBypass,
           },
           uploadableImages,
           item.images || [],
@@ -412,7 +559,9 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="prompt-detail-title"
-      className="fixed inset-0 z-50 bg-[#fbfbf9] overflow-y-auto flex flex-col animate-in fade-in duration-200"
+      data-lenis-prevent
+      className="fixed inset-0 z-50 bg-[#fbfbf9] overflow-y-auto overscroll-contain h-[100dvh] w-full flex flex-col select-auto animate-in fade-in duration-200"
+      style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
     >
       {/* ── Top Page Navigation Bar ── */}
       <header className="sticky top-0 z-30 bg-[#fbfbf9]/95 backdrop-blur-md border-b border-zinc-200/80 px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between shadow-xs">
@@ -482,7 +631,7 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
             <>
               {/* Cancel Edit */}
               <button
-                onClick={() => setIsEditingMode(false)}
+                onClick={handleCancelEdit}
                 disabled={isSavingEdit}
                 className="px-4 py-2 rounded-full bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-700 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
               >
@@ -732,7 +881,8 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
                       'pill'
                     )}`}
                   >
-                    #{lbl}
+                    {getLabelIcon(lbl) && <span>{getLabelIcon(lbl)}</span>}
+                    <span>#{lbl}</span>
                     <button
                       type="button"
                       onClick={() => handleRemoveEditLabel(lbl)}
@@ -837,6 +987,177 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
               )}
             </div>
 
+            {/* Model Selection & Bypass Success Ratio */}
+            <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200/90 space-y-3.5">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <Cpu className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Which model is used?</span>
+                  </label>
+                  {!isAddingModel && (
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingModel(true)}
+                      className="text-xs font-bold text-zinc-800 hover:text-black flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Model</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Model Pills */}
+                <div className="flex flex-wrap gap-2">
+                  {[...DEFAULT_MODELS, ...customModels].map((m) => {
+                    const isSelected = editModelUsed === m;
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setEditModelUsed(m)}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-zinc-900 text-white shadow-xs'
+                            : 'bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-100'
+                        }`}
+                      >
+                        {m === 'Both' ? 'Both (Nano Pro & 2.1)' : m}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Add Custom Model Field */}
+                {isAddingModel && (
+                  <div className="flex items-center gap-2 mt-2.5 animate-in fade-in duration-150">
+                    <input
+                      type="text"
+                      value={newModelInput}
+                      onChange={(e) => setNewModelInput(e.target.value)}
+                      placeholder="New model name (e.g. Flux, SDXL)..."
+                      className="flex-1 px-3 py-1.5 rounded-xl bg-white border border-zinc-300 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddCustomModel}
+                      className="px-3 py-1.5 rounded-xl bg-zinc-900 text-white text-xs font-bold cursor-pointer"
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAddingModel(false);
+                        setNewModelInput('');
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-zinc-200 text-zinc-700 text-xs font-bold cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Success Ratio / Bypass Difficulty Selector */}
+              <div className="pt-3 border-t border-zinc-200/80 space-y-2">
+                <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider">
+                  Success Ratio / Bypass Difficulty
+                </label>
+
+                {editModelUsed === 'Both' ? (
+                  <div className="space-y-2">
+                    {/* Nano Pro */}
+                    <div className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-zinc-800">Nano Pro:</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSetEditBypass('Nano Pro', 'easily_pass')}
+                          className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                            (editModelBypass['Nano Pro'] || 'easily_pass') === 'easily_pass'
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                          }`}
+                        >
+                          ✓ Easily Pass
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSetEditBypass('Nano Pro', 'difficult_to_bypass')}
+                          className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                            editModelBypass['Nano Pro'] === 'difficult_to_bypass'
+                              ? 'bg-amber-600 text-white shadow-xs'
+                              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                          }`}
+                        >
+                          ⚠ Difficult to Bypass
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Nano 2.1 */}
+                    <div className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-zinc-800">Nano 2.1:</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSetEditBypass('Nano 2.1', 'easily_pass')}
+                          className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                            (editModelBypass['Nano 2.1'] || 'easily_pass') === 'easily_pass'
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                          }`}
+                        >
+                          ✓ Easily Pass
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSetEditBypass('Nano 2.1', 'difficult_to_bypass')}
+                          className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                            editModelBypass['Nano 2.1'] === 'difficult_to_bypass'
+                              ? 'bg-amber-600 text-white shadow-xs'
+                              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                          }`}
+                        >
+                          ⚠ Difficult to Bypass
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Single Model Selected */
+                  <div className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-zinc-800">{editModelUsed}:</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSetEditBypass(editModelUsed, 'easily_pass')}
+                        className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                          (editModelBypass[editModelUsed] || 'easily_pass') === 'easily_pass'
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                        }`}
+                      >
+                        ✓ Easily Pass
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSetEditBypass(editModelUsed, 'difficult_to_bypass')}
+                        className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                          editModelBypass[editModelUsed] === 'difficult_to_bypass'
+                            ? 'bg-amber-600 text-white shadow-xs'
+                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                        }`}
+                      >
+                        ⚠ Difficult to Bypass
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Images Manager */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -859,7 +1180,7 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept="image/*"
+                accept="image/png, image/jpeg, image/webp, image/gif"
                 onChange={handleFilesSelected}
                 className="hidden"
               />
@@ -902,7 +1223,7 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
             <div className="pt-4 border-t border-zinc-100 flex items-center justify-end gap-3">
               <button
                 type="button"
-                onClick={() => setIsEditingMode(false)}
+                onClick={handleCancelEdit}
                 disabled={isSavingEdit}
                 className="px-5 py-2.5 rounded-full border border-zinc-200 text-zinc-700 text-xs font-bold hover:bg-zinc-100 transition-colors cursor-pointer disabled:opacity-50"
               >
@@ -1027,12 +1348,13 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
                           onSelectLabel?.(lbl);
                           onClose();
                         }}
-                        className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${getLabelBadgeClass(
+                        className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 ${getLabelBadgeClass(
                           lbl,
                           'pill'
                         )}`}
                       >
-                        #{lbl}
+                        {getLabelIcon(lbl) && <span>{getLabelIcon(lbl)}</span>}
+                        <span>#{lbl}</span>
                       </button>
                     ))
                   ) : (
@@ -1141,6 +1463,62 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
                     </button>
                   </div>
                 )
+              )}
+
+              {/* Model Used & Bypass Difficulty Badges */}
+              {item.modelUsed && (
+                <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center text-xs font-bold shrink-0">
+                      <Cpu className="w-4 h-4 text-amber-700" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Model Used</span>
+                      <span className="text-xs font-black text-zinc-900">
+                        {item.modelUsed === 'Both' ? 'Both (Nano Pro & 2.1)' : item.modelUsed}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Bypass Difficulty Badges */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {item.modelUsed === 'Both' ? (
+                      <>
+                        <span className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs ${
+                          (item.modelBypass?.['Nano Pro'] || 'easily_pass') === 'easily_pass'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                            : 'bg-amber-50 text-amber-800 border border-amber-300'
+                        }`}>
+                          <span>Nano Pro:</span>
+                          <span className="font-extrabold">
+                            {(item.modelBypass?.['Nano Pro'] || 'easily_pass') === 'easily_pass' ? '✓ Easily Pass' : '⚠ Difficult to Bypass'}
+                          </span>
+                        </span>
+                        <span className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs ${
+                          (item.modelBypass?.['Nano 2.1'] || 'easily_pass') === 'easily_pass'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                            : 'bg-amber-50 text-amber-800 border border-amber-300'
+                        }`}>
+                          <span>Nano 2.1:</span>
+                          <span className="font-extrabold">
+                            {(item.modelBypass?.['Nano 2.1'] || 'easily_pass') === 'easily_pass' ? '✓ Easily Pass' : '⚠ Difficult to Bypass'}
+                          </span>
+                        </span>
+                      </>
+                    ) : (
+                      <span className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs ${
+                        (item.modelBypass?.[item.modelUsed] || 'easily_pass') === 'easily_pass'
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                          : 'bg-amber-50 text-amber-800 border border-amber-300'
+                      }`}>
+                        <span>Bypass:</span>
+                        <span className="font-extrabold">
+                          {(item.modelBypass?.[item.modelUsed] || 'easily_pass') === 'easily_pass' ? '✓ Easily Pass' : '⚠ Difficult to Bypass'}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                </div>
               )}
 
               {/* Description / Step-by-Step Instructions */}

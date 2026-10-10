@@ -37,13 +37,25 @@ export function useLenis(isModalOpen = false) {
     };
   }, []);
 
-  // Pause page smooth scroll when a modal dialog is open
+  // Pause page smooth scroll and lock background scroll when a modal dialog is open
   useEffect(() => {
-    if (!lenisRef.current) return;
     if (isModalOpen) {
-      lenisRef.current.stop();
+      if (lenisRef.current) {
+        lenisRef.current.stop();
+      }
+      const prevOverflow = document.documentElement.style.overflow;
+      document.documentElement.style.overflow = 'hidden';
+
+      return () => {
+        document.documentElement.style.overflow = prevOverflow;
+        if (lenisRef.current) {
+          lenisRef.current.start();
+        }
+      };
     } else {
-      lenisRef.current.start();
+      if (lenisRef.current) {
+        lenisRef.current.start();
+      }
     }
   }, [isModalOpen]);
 

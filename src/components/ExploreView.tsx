@@ -10,8 +10,9 @@ import {
   Search,
   Maximize2,
 } from 'lucide-react';
-import { getLabelBadgeClass } from '../utils/labelColors';
+import { getLabelBadgeClass, getLabelIcon } from '../utils/labelColors';
 import { ImagePreviewModal } from './ImagePreviewModal';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface ExploreViewProps {
   prompts: PromptItem[];
@@ -35,11 +36,14 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [previewPrompt, setPreviewPrompt] = useState<PromptItem | null>(null);
 
-  const handleCopy = (e: React.MouseEvent, item: PromptItem) => {
+  const handleCopy = async (e: React.MouseEvent, item: PromptItem) => {
     e.stopPropagation();
-    onCopyPrompt(item.prompt, item.title);
-    setCopiedId(item.id);
-    setTimeout(() => setCopiedId(null), 2000);
+    const success = await copyToClipboard(item.prompt);
+    if (success) {
+      setCopiedId(item.id);
+      onCopyPrompt(item.prompt, item.title);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
   };
 
   const handleToggleStatus = (e: React.MouseEvent, item: PromptItem) => {
@@ -65,7 +69,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
               </span>
             </h1>
             <p className="text-xs text-zinc-500">
-              List view • Left pic, title & right go-to-page arrow
+              Browse all saved prompts in a compact horizontal list view
             </p>
           </div>
         </div>
@@ -184,9 +188,10 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
                     {item.labels && item.labels.slice(0, 3).map((tag) => (
                       <span
                         key={tag}
-                        className={`text-[10px] sm:text-[11px] font-semibold px-2 py-0.5 rounded-full ${getLabelBadgeClass(tag, 'pill')}`}
+                        className={`text-[10px] sm:text-[11px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${getLabelBadgeClass(tag, 'pill')}`}
                       >
-                        #{tag}
+                        {getLabelIcon(tag) && <span>{getLabelIcon(tag)}</span>}
+                        <span>#{tag}</span>
                       </span>
                     ))}
 

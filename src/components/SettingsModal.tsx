@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X, ShieldCheck, Lock, Check, Eye, EyeOff, KeyRound,
   AlertTriangle, RefreshCw, Trash2, Settings,
@@ -57,26 +57,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isResettingApp, setIsResettingApp] = useState(false);
   const [resetProgress, setResetProgress] = useState<{ deleted: number; total: number } | null>(null);
 
+  const prevIsOpenRef = useRef(false);
+
   useEffect(() => {
-    if (!isOpen || !userProfile) return;
-    setActiveTab('security');
-    if (userProfile.securityQuestion) {
-      if (PRESET_QUESTIONS.includes(userProfile.securityQuestion)) {
-        setSelectedQuestion(userProfile.securityQuestion);
-        setIsCustom(false);
-      } else {
-        setIsCustom(true);
-        setCustomQuestion(userProfile.securityQuestion);
-      }
+    if (!isOpen || !userProfile) {
+      prevIsOpenRef.current = false;
+      return;
     }
-    setCurrentAnswer('');
-    setShowCurrentPassword(false);
-    setNewAnswer('');
-    setShowNewPassword(false);
-    setError(null);
-    setIsUnlockedByGoogle(false);
-    setShowResetConfirm(false);
-    setResetConfirmText('');
+
+    // Only reset state when modal transitions from closed to open
+    if (!prevIsOpenRef.current) {
+      prevIsOpenRef.current = true;
+      setActiveTab('security');
+      if (userProfile.securityQuestion) {
+        if (PRESET_QUESTIONS.includes(userProfile.securityQuestion)) {
+          setSelectedQuestion(userProfile.securityQuestion);
+          setIsCustom(false);
+        } else {
+          setIsCustom(true);
+          setCustomQuestion(userProfile.securityQuestion);
+        }
+      }
+      setCurrentAnswer('');
+      setShowCurrentPassword(false);
+      setNewAnswer('');
+      setShowNewPassword(false);
+      setError(null);
+      setIsUnlockedByGoogle(false);
+      setShowResetConfirm(false);
+      setResetConfirmText('');
+    }
   }, [isOpen, userProfile]);
 
   if (!isOpen || !userProfile) return null;
@@ -113,8 +123,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const finalNewAnswer = newAnswer.trim();
 
     if (!finalQuestion) { setError('Please select or enter a valid security question.'); return; }
-    if ((!hasExistingSetup || isUnlockedByGoogle) && !finalNewAnswer) {
-      setError('Please provide a secret answer.'); return;
+
+    const questionChanged = hasExistingSetup && finalQuestion !== userProfile.securityQuestion;
+    if ((!hasExistingSetup || isUnlockedByGoogle || questionChanged) && !finalNewAnswer) {
+      setError(
+        questionChanged
+          ? 'You selected a different security question. Please enter a secret answer for this new question.'
+          : 'Please provide a secret answer.'
+      );
+      return;
     }
 
     const answerToSave = finalNewAnswer

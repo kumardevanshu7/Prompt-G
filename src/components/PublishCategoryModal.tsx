@@ -38,7 +38,7 @@ export const PublishCategoryModal: React.FC<PublishCategoryModalProps> = ({
         if (e.target === e.currentTarget && !isSubmitting) onClose();
       }}
     >
-      <div className="relative w-full max-w-md bg-white rounded-3xl p-6 sm:p-7 shadow-2xl border border-zinc-200/90 space-y-5">
+      <div data-lenis-prevent className="relative w-full max-w-md bg-white rounded-3xl p-6 sm:p-7 shadow-2xl border border-zinc-200/90 space-y-5">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
           <div className="flex items-center gap-2.5">
@@ -50,7 +50,7 @@ export const PublishCategoryModal: React.FC<PublishCategoryModalProps> = ({
                 Publish Destination
               </h3>
               <p className="text-xs text-zinc-500">
-                Aapne isko kahan pe publish kiya hai?
+                Choose destination category for this published prompt
               </p>
             </div>
           </div>

@@ -1,9 +1,9 @@
 import React from 'react';
-import { Home, Compass, Plus, FolderKanban } from 'lucide-react';
+import { Home, Compass, Plus, FolderKanban, BarChart3 } from 'lucide-react';
 
 interface BottomNavProps {
-  activeTab: 'home' | 'categories' | 'labels';
-  onTabChange: (tab: 'home' | 'categories' | 'labels') => void;
+  activeTab: 'home' | 'categories' | 'labels' | 'analytics';
+  onTabChange: (tab: 'home' | 'categories' | 'labels' | 'analytics') => void;
   onOpenAddModal: () => void;
   publishedCount?: number;
 }
@@ -15,16 +15,16 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   publishedCount = 0,
 }) => {
   return (
-    <div className="fixed bottom-4 inset-x-0 z-40 flex justify-center px-4 pointer-events-none">
+    <div className="fixed bottom-4 inset-x-0 z-40 flex justify-center px-3 pointer-events-none">
       <nav
         aria-label="Bottom Navigation"
-        className="pointer-events-auto flex items-center justify-around px-4 sm:px-6 py-2 rounded-full bg-white/95 backdrop-blur-xl shadow-xl border border-zinc-200/80 max-w-[340px] w-full transition-all"
+        className="pointer-events-auto flex items-center justify-around px-3 sm:px-6 py-2 rounded-full bg-white/95 backdrop-blur-xl shadow-xl border border-zinc-200/80 max-w-[380px] w-full transition-all"
       >
         {/* Home */}
         <button
           onClick={() => onTabChange('home')}
           aria-label="Home"
-          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-full transition-all cursor-pointer ${
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-full transition-all cursor-pointer ${
             activeTab === 'home' ? 'text-zinc-900 font-bold' : 'text-zinc-400 hover:text-zinc-700'
           }`}
         >
@@ -36,7 +36,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         <button
           onClick={() => onTabChange('categories')}
           aria-label="Categories"
-          className={`relative flex flex-col items-center justify-center py-1 px-2.5 rounded-full transition-all cursor-pointer ${
+          className={`relative flex flex-col items-center justify-center py-1 px-2 rounded-full transition-all cursor-pointer ${
             activeTab === 'categories' ? 'text-zinc-900 font-bold' : 'text-zinc-400 hover:text-zinc-700'
           }`}
         >
@@ -61,12 +61,24 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         <button
           onClick={() => onTabChange('labels')}
           aria-label="Explore labels"
-          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-full transition-all cursor-pointer ${
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-full transition-all cursor-pointer ${
             activeTab === 'labels' ? 'text-zinc-900 font-bold' : 'text-zinc-400 hover:text-zinc-700'
           }`}
         >
           <Compass className={`w-5 h-5 ${activeTab === 'labels' ? 'stroke-[2.5]' : 'stroke-[1.75]'}`} />
           <span className="text-[10px] mt-0.5">Explore</span>
+        </button>
+
+        {/* Analytics */}
+        <button
+          onClick={() => onTabChange('analytics')}
+          aria-label="Analytics"
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-full transition-all cursor-pointer ${
+            activeTab === 'analytics' ? 'text-zinc-900 font-bold' : 'text-zinc-400 hover:text-zinc-700'
+          }`}
+        >
+          <BarChart3 className={`w-5 h-5 ${activeTab === 'analytics' ? 'stroke-[2.5]' : 'stroke-[1.75]'}`} />
+          <span className="text-[10px] mt-0.5">Stats</span>
         </button>
       </nav>
     </div>

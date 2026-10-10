@@ -13,8 +13,16 @@ import {
   Maximize2,
 } from 'lucide-react';
 import { PromptCard } from './PromptCard';
-import { getLabelBadgeClass } from '../utils/labelColors';
+import { getLabelBadgeClass, getLabelIcon } from '../utils/labelColors';
 import { ImagePreviewModal } from './ImagePreviewModal';
+import { copyToClipboard } from '../utils/clipboard';
+
+export const getPublishType = (p: PromptItem): 'direct' | 'unreleased' => {
+  if (p.publishCategory === 'unreleased') return 'unreleased';
+  if (p.publishCategory === 'direct') return 'direct';
+  if (p.labels?.some((l) => l.toLowerCase() === 'unreleased')) return 'unreleased';
+  return 'direct';
+};
 
 interface CategoriesViewProps {
   prompts: PromptItem[];
@@ -44,23 +52,13 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     return prompts.filter((p) => p.isUsed === true);
   }, [prompts]);
 
-  // Compute counts
+  // Compute counts using unified getPublishType helper
   const directPrompts = useMemo(() => {
-    return publishedPrompts.filter((p) => {
-      if (p.publishCategory === 'direct') return true;
-      if (p.publishCategory === 'unreleased') return false;
-      // Fallback: check if unreleased label is missing
-      return !p.labels?.some((l) => l.toLowerCase() === 'unreleased');
-    });
+    return publishedPrompts.filter((p) => getPublishType(p) === 'direct');
   }, [publishedPrompts]);
 
   const unreleasedPrompts = useMemo(() => {
-    return publishedPrompts.filter((p) => {
-      if (p.publishCategory === 'unreleased') return true;
-      if (p.publishCategory === 'direct') return false;
-      // Fallback: check if unreleased label exists
-      return Boolean(p.labels?.some((l) => l.toLowerCase() === 'unreleased'));
-    });
+    return publishedPrompts.filter((p) => getPublishType(p) === 'unreleased');
   }, [publishedPrompts]);
 
   // Filter by selected sub-category
@@ -70,11 +68,14 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     return publishedPrompts;
   }, [selectedSubCategory, directPrompts, unreleasedPrompts, publishedPrompts]);
 
-  const handleCopy = (e: React.MouseEvent, item: PromptItem) => {
+  const handleCopy = async (e: React.MouseEvent, item: PromptItem) => {
     e.stopPropagation();
-    onCopyPrompt(item.prompt, item.title);
-    setCopiedId(item.id);
-    setTimeout(() => setCopiedId(null), 2000);
+    const success = await copyToClipboard(item.prompt);
+    if (success) {
+      setCopiedId(item.id);
+      onCopyPrompt(item.prompt, item.title);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
   };
 
   return (
@@ -233,9 +234,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             const thumbnail = hasImages ? item.images[0] : null;
             const totalImages = item.images ? item.images.length : 0;
             const isCopied = copiedId === item.id;
-            const isUnreleased =
-              item.publishCategory === 'unreleased' ||
-              item.labels?.some((l) => l.toLowerCase() === 'unreleased');
+            const isUnreleased = getPublishType(item) === 'unreleased';
 
             return (
               <div
@@ -317,12 +316,13 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                       item.labels.slice(0, 3).map((tag) => (
                         <span
                           key={tag}
-                          className={`text-[10px] sm:text-[11px] font-semibold px-2 py-0.5 rounded-full ${getLabelBadgeClass(
+                          className={`text-[10px] sm:text-[11px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${getLabelBadgeClass(
                             tag,
                             'pill'
                           )}`}
                         >
-                          #{tag}
+                          {getLabelIcon(tag) && <span>{getLabelIcon(tag)}</span>}
+                          <span>#{tag}</span>
                         </span>
                       ))}
 

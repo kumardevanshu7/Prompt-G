@@ -52,7 +52,10 @@ export const saveNewPrompt = async (
 };
 
 export const removePromptById = async (id: string, imageUrls: string[] = []): Promise<void> => {
-  // 1. Delete files from Supabase Storage so no orphan images remain
+  // 1. Delete prompt document from Firestore FIRST
+  await deleteFirebasePrompt(id);
+
+  // 2. Delete files from Supabase Storage SECOND so document deletion is guaranteed
   if (imageUrls && imageUrls.length > 0) {
     try {
       await deleteImagesFromSupabase(imageUrls);
@@ -60,9 +63,6 @@ export const removePromptById = async (id: string, imageUrls: string[] = []): Pr
       console.warn('Failed to delete images from Supabase Storage:', err);
     }
   }
-
-  // 2. Delete prompt document from Firestore
-  await deleteFirebasePrompt(id);
 };
 
 export const updatePromptStatus = async (
@@ -74,7 +74,7 @@ export const updatePromptStatus = async (
 
 /**
  * Updates an existing prompt document in Firestore.
- * Handles uploading new images and cleaning up removed images from Supabase Storage.
+ * Handles uploading new images, updating Firestore, and cleaning up removed images.
  */
 export const updateExistingPrompt = async (
   id: string,
@@ -84,26 +84,38 @@ export const updateExistingPrompt = async (
   onProgress?: (current: number, total: number) => void
 ): Promise<Partial<PromptItem>> => {
   let finalUrls: string[] | undefined = undefined;
+  const newlyUploadedUrls: string[] = [];
 
-  if (imagesToProcess !== undefined) {
-    finalUrls = [];
-    const filesToUpload = imagesToProcess.filter((img) => img.file);
-    let uploadedCount = 0;
+  try {
+    if (imagesToProcess !== undefined) {
+      finalUrls = [];
+      const filesToUpload = imagesToProcess.filter((img) => img.file);
+      let uploadedCount = 0;
 
-    for (let i = 0; i < imagesToProcess.length; i++) {
-      const img = imagesToProcess[i];
-      if (img.file) {
-        uploadedCount++;
-        onProgress?.(uploadedCount, filesToUpload.length);
-        const uploadedUrl = await uploadImageToSupabase(img.file);
-        finalUrls.push(uploadedUrl);
-      } else if (img.url) {
-        finalUrls.push(img.url);
+      for (let i = 0; i < imagesToProcess.length; i++) {
+        const img = imagesToProcess[i];
+        if (img.file) {
+          uploadedCount++;
+          onProgress?.(uploadedCount, filesToUpload.length);
+          const uploadedUrl = await uploadImageToSupabase(img.file);
+          newlyUploadedUrls.push(uploadedUrl);
+          finalUrls.push(uploadedUrl);
+        } else if (img.url) {
+          finalUrls.push(img.url);
+        }
       }
     }
 
-    // Delete any old images that were removed
-    if (oldImageUrls && oldImageUrls.length > 0) {
+    const payload: Partial<PromptItem> = {
+      ...updates,
+      ...(finalUrls !== undefined ? { images: finalUrls } : {}),
+    };
+
+    // 1. Update Firestore document FIRST
+    await updateFirebasePrompt(id, payload);
+
+    // 2. Delete any old images that were removed SECOND (only after doc write succeeds)
+    if (imagesToProcess !== undefined && oldImageUrls && oldImageUrls.length > 0) {
       const removedUrls = oldImageUrls.filter((oldUrl) => !finalUrls!.includes(oldUrl));
       if (removedUrls.length > 0) {
         try {
@@ -113,15 +125,19 @@ export const updateExistingPrompt = async (
         }
       }
     }
+
+    return payload;
+  } catch (err) {
+    // If upload or firestore write failed midway, clean up newly uploaded orphan images
+    if (newlyUploadedUrls.length > 0) {
+      try {
+        await deleteImagesFromSupabase(newlyUploadedUrls);
+      } catch (cleanupErr) {
+        console.warn('Failed to clean up newly uploaded orphan images:', cleanupErr);
+      }
+    }
+    throw err;
   }
-
-  const payload: Partial<PromptItem> = {
-    ...updates,
-    ...(finalUrls !== undefined ? { images: finalUrls } : {}),
-  };
-
-  await updateFirebasePrompt(id, payload);
-  return payload;
 };
 
 /**
@@ -145,18 +161,11 @@ export const resetAllUserData = async (
   // Step 1: Delete all Firestore docs, collecting image URLs
   const allImageUrls = await deleteAllFirebasePrompts(userId);
 
-  // Step 2: Delete all images from Supabase Storage (with progress)
+  // Step 2: Batch delete all images from Supabase Storage
   const total = allImageUrls.length;
-  let deleted = 0;
-  for (const url of allImageUrls) {
-    try {
-      await deleteImagesFromSupabase([url]);
-    } catch {
-      // Best-effort — log but continue
-      console.warn('[resetAllUserData] Could not delete image:', url);
-    }
-    deleted++;
-    onProgress?.(deleted, total);
+  if (total > 0) {
+    await deleteImagesFromSupabase(allImageUrls);
   }
+  onProgress?.(total, total);
 };
 

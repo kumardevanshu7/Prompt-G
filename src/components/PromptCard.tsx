@@ -11,7 +11,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
-import { getLabelBadgeClass } from '../utils/labelColors';
+import { getLabelBadgeClass, getLabelIcon } from '../utils/labelColors';
 
 interface PromptCardProps {
   item: PromptItem;
@@ -31,6 +31,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
 
   const images = item.images && item.images.length > 0 ? item.images : [];
   const totalImages = images.length;
+  const safeImageIndex = Math.min(currentImageIndex, Math.max(0, totalImages - 1));
 
   const handleNextImage = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -81,7 +82,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
         {/* Image Slideshow / Preview (pure image, no red tint overlay) */}
         {totalImages > 0 ? (
           <img
-            src={images[currentImageIndex]}
+            src={images[safeImageIndex]}
             alt={item.title}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
             loading="lazy"
@@ -149,7 +150,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
             {totalImages > 1 && (
               <div className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] sm:text-[11px] font-semibold tracking-wide shadow-sm whitespace-nowrap shrink-0">
                 <Layers className="w-3 h-3" />
-                <span>{currentImageIndex + 1}/{totalImages}</span>
+                <span>{safeImageIndex + 1}/{totalImages}</span>
               </div>
             )}
           </div>
@@ -177,19 +178,27 @@ export const PromptCard: React.FC<PromptCardProps> = ({
 
         {/* Bottom Image Overlay (All tags grouped here at bottom above title) */}
         <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent text-white z-10 flex flex-col justify-end">
-          {/* All Category Tags at Bottom */}
-          {item.labels && item.labels.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 mb-2">
-              {item.labels.map((l) => (
+          {/* Model Used and Category Tags at Bottom */}
+          <div className="flex flex-wrap items-center gap-1.5 mb-2">
+            {item.modelUsed && (
+              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-black/70 text-amber-300 border border-amber-400/40 backdrop-blur-xs flex items-center gap-1 shadow-2xs">
+                <span>⚡</span>
+                <span>{item.modelUsed}</span>
+              </span>
+            )}
+            {item.labels && item.labels.map((l) => {
+              const icon = getLabelIcon(l);
+              return (
                 <span
                   key={l}
-                  className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${getLabelBadgeClass(l, 'card')}`}
+                  className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full flex items-center gap-1 ${getLabelBadgeClass(l, 'card')}`}
                 >
-                  #{l}
+                  {icon && <span>{icon}</span>}
+                  <span>#{l}</span>
                 </span>
-              ))}
-            </div>
-          )}
+              );
+            })}
+          </div>
 
           {/* Title (Short/line-clamp-1, other details show inside modal) */}
           <h3 className="font-bold text-base md:text-lg leading-tight line-clamp-1 drop-shadow-sm">

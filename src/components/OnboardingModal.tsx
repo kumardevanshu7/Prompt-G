@@ -48,9 +48,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
       const profile: UserProfile = {
         uid,
         name: name.trim(),
-        gender: gender ? gender : undefined,
-        email,
-        photoURL,
+        ...(gender ? { gender } : {}),
+        ...(email ? { email } : {}),
+        ...(photoURL ? { photoURL } : {}),
         createdAt: new Date().toISOString(),
       };
 
@@ -70,7 +70,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md"
     >
-      <div className="relative w-full max-w-md bg-white rounded-[36px] shadow-2xl border border-zinc-100 p-7 overflow-hidden">
+      <div data-lenis-prevent className="relative w-full max-w-md bg-white rounded-[36px] shadow-2xl border border-zinc-100 p-7 overflow-hidden">
         
         {/* Top Icon Badge */}
         <div className="flex items-center justify-center mb-5">
