@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Plus, LogIn, LogOut, X, Settings } from 'lucide-react';
+import { Search, Plus, LogIn, LogOut, X, Settings, FolderKanban, Home } from 'lucide-react';
 import type { UserProfile } from '../types/prompt';
 
 interface HeaderProps {
@@ -10,6 +10,9 @@ interface HeaderProps {
   userProfile: UserProfile | null;
   onGoogleSignIn: () => void;
   onLogout: () => void;
+  activeTab?: 'home' | 'categories' | 'labels';
+  onTabChange?: (tab: 'home' | 'categories' | 'labels') => void;
+  publishedCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -20,6 +23,9 @@ export const Header: React.FC<HeaderProps> = ({
   userProfile,
   onGoogleSignIn,
   onLogout,
+  activeTab = 'home',
+  onTabChange,
+  publishedCount = 0,
 }) => {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -155,6 +161,47 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="text-zinc-900">Your Next Prompt</span>
         </h1>
       </div>
+
+      {/* Navigation Switcher right above Search Bar: All Prompts vs Categories */}
+      {onTabChange && (
+        <div className="flex items-center gap-2 mb-3">
+          <div className="inline-flex items-center gap-1 p-1 bg-zinc-200/70 rounded-full">
+            <button
+              onClick={() => onTabChange('home')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'home'
+                  ? 'bg-zinc-900 text-white shadow-xs'
+                  : 'text-zinc-600 hover:text-zinc-950'
+              }`}
+            >
+              <Home className="w-3.5 h-3.5" />
+              <span>All Prompts</span>
+            </button>
+            <button
+              onClick={() => onTabChange('categories')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'categories'
+                  ? 'bg-zinc-900 text-white shadow-xs'
+                  : 'text-zinc-600 hover:text-zinc-950'
+              }`}
+            >
+              <FolderKanban className="w-3.5 h-3.5" />
+              <span>Categories</span>
+              {publishedCount > 0 && (
+                <span
+                  className={`text-[10px] font-black px-1.5 py-0.2 rounded-full ${
+                    activeTab === 'categories'
+                      ? 'bg-amber-400 text-zinc-950'
+                      : 'bg-zinc-300 text-zinc-800'
+                  }`}
+                >
+                  {publishedCount}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Search Bar Row */}
       <div className="flex items-center gap-2.5">

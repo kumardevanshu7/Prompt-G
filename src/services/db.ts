@@ -73,6 +73,58 @@ export const updatePromptStatus = async (
 };
 
 /**
+ * Updates an existing prompt document in Firestore.
+ * Handles uploading new images and cleaning up removed images from Supabase Storage.
+ */
+export const updateExistingPrompt = async (
+  id: string,
+  updates: Partial<Omit<PromptItem, 'id' | 'created_at'>>,
+  imagesToProcess?: UploadableImage[],
+  oldImageUrls?: string[],
+  onProgress?: (current: number, total: number) => void
+): Promise<Partial<PromptItem>> => {
+  let finalUrls: string[] | undefined = undefined;
+
+  if (imagesToProcess !== undefined) {
+    finalUrls = [];
+    const filesToUpload = imagesToProcess.filter((img) => img.file);
+    let uploadedCount = 0;
+
+    for (let i = 0; i < imagesToProcess.length; i++) {
+      const img = imagesToProcess[i];
+      if (img.file) {
+        uploadedCount++;
+        onProgress?.(uploadedCount, filesToUpload.length);
+        const uploadedUrl = await uploadImageToSupabase(img.file);
+        finalUrls.push(uploadedUrl);
+      } else if (img.url) {
+        finalUrls.push(img.url);
+      }
+    }
+
+    // Delete any old images that were removed
+    if (oldImageUrls && oldImageUrls.length > 0) {
+      const removedUrls = oldImageUrls.filter((oldUrl) => !finalUrls!.includes(oldUrl));
+      if (removedUrls.length > 0) {
+        try {
+          await deleteImagesFromSupabase(removedUrls);
+        } catch (err) {
+          console.warn('Failed to delete removed images from Supabase Storage:', err);
+        }
+      }
+    }
+  }
+
+  const payload: Partial<PromptItem> = {
+    ...updates,
+    ...(finalUrls !== undefined ? { images: finalUrls } : {}),
+  };
+
+  await updateFirebasePrompt(id, payload);
+  return payload;
+};
+
+/**
  * Real-time listener: Returns parsed PromptItem[] directly from Firestore.
  */
 export const subscribeToPromptChanges = (

@@ -13,6 +13,7 @@ export interface PromptItem {
   userName?: string;
   enableCheckmark?: boolean; // When true, prompt tracks usage status (Pending vs Used)
   isUsed?: boolean; // false = Pending / No (light red), true = Used / Yes (checked)
+  publishCategory?: 'direct' | 'unreleased'; // Published sub-category destination
 }
 
 export interface UserProfile {

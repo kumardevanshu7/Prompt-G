@@ -5,6 +5,7 @@ import {
   saveNewPrompt,
   removePromptById,
   updatePromptStatus,
+  updateExistingPrompt,
   subscribeToPromptChanges,
   resetAllUserData,
 } from './services/db';
@@ -24,6 +25,8 @@ import { SettingsModal } from './components/SettingsModal';
 import { OnboardingModal } from './components/OnboardingModal';
 import { BottomNav } from './components/BottomNav';
 import { ExploreView } from './components/ExploreView';
+import { CategoriesView } from './components/CategoriesView';
+import { PublishCategoryModal } from './components/PublishCategoryModal';
 import { EmptyState } from './components/EmptyState';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { Toast } from './components/Toast';
@@ -56,11 +59,12 @@ export function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedPromptId, setSelectedPromptId] = useState<string | null>(null);
 
-  // Active Bottom Nav Tab
-  const [activeTab, setActiveTab] = useState<'home' | 'labels'>('home');
+  // Active Tab: 'home' (All Prompts Vault), 'categories' (Direct vs Unreleased), 'labels' (Explore List)
+  const [activeTab, setActiveTab] = useState<'home' | 'categories' | 'labels'>('home');
+  const [publishTargetPrompt, setPublishTargetPrompt] = useState<PromptItem | null>(null);
 
   // Lenis Smooth Momentum Scroll (pauses when any full-screen modal is open)
-  const isAnyModalOpen = isAddModalOpen || selectedPromptId !== null || isSecurityModalOpen || isOnboardingOpen;
+  const isAnyModalOpen = isAddModalOpen || selectedPromptId !== null || isSecurityModalOpen || isOnboardingOpen || publishTargetPrompt !== null;
   useLenis(isAnyModalOpen);
 
   // Toast feedback with type (success, error, info)
@@ -318,6 +322,27 @@ export function App() {
     }
   };
 
+  // Handle updating an existing prompt
+  const handleUpdatePrompt = async (
+    id: string,
+    updates: Partial<Omit<PromptItem, 'id' | 'created_at'>>,
+    imagesToProcess?: UploadableImage[],
+    oldImageUrls?: string[],
+    onProgress?: (current: number, total: number) => void
+  ) => {
+    try {
+      const payload = await updateExistingPrompt(id, updates, imagesToProcess, oldImageUrls, onProgress);
+      setPrompts((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, ...payload } : p))
+      );
+      showToast('Prompt updated successfully!', 'success');
+    } catch (err: unknown) {
+      console.error('Failed to update prompt:', err);
+      showToast('Failed to update prompt', 'error');
+      throw err;
+    }
+  };
+
   // DANGER: Reset entire app — delete all prompts & images from Firebase/Supabase, clear local state
   const handleResetApp = async (onProgress?: (deleted: number, total: number) => void): Promise<void> => {
     if (!userProfile?.uid) throw new Error('Not signed in');
@@ -331,25 +356,53 @@ export function App() {
     showToast(`Copied: "${title}"`, 'success');
   };
 
-  // Toggle Checkmark / Instagram posted status
-  // Toggle Checkmark / Instagram posted status (One-way: Pending -> Used only)
-  const handleToggleUsed = async (id: string, isUsed: boolean) => {
+  // Toggle Checkmark / Instagram posted status (One-way: opens publish category modal)
+  const handleToggleUsed = (id: string, isUsed: boolean) => {
     // One-way rule: Once green (used), it cannot be reverted back to red
     if (!isUsed) return;
+    const target = prompts.find((p) => p.id === id);
+    if (target) {
+      setPublishTargetPrompt(target);
+    }
+  };
+
+  // Confirm publish category (Direct or Unreleased)
+  const handleConfirmPublishCategory = async (destination: 'direct' | 'unreleased') => {
+    if (!publishTargetPrompt) return;
+    const id = publishTargetPrompt.id;
     try {
+      const hasUnreleasedTag = publishTargetPrompt.labels?.some(
+        (l) => l.toLowerCase() === 'unreleased'
+      );
+      const updatedLabels =
+        destination === 'unreleased' && !hasUnreleasedTag
+          ? [...(publishTargetPrompt.labels || []), 'unreleased']
+          : (publishTargetPrompt.labels || []);
+
       // Optimistic update
       setPrompts((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, isUsed: true } : p))
+        prev.map((p) =>
+          p.id === id
+            ? { ...p, isUsed: true, publishCategory: destination, labels: updatedLabels }
+            : p
+        )
       );
-      await updatePromptStatus(id, { isUsed: true });
-      showToast('Marked as Used & Uploaded! (Yes)', 'success');
+
+      await updatePromptStatus(id, {
+        isUsed: true,
+        publishCategory: destination,
+        labels: updatedLabels,
+      });
+
+      showToast(
+        `Published to ${destination === 'unreleased' ? 'Unreleased (Light Blue)' : 'Direct'}!`,
+        'success'
+      );
     } catch (err: unknown) {
-      console.error('Failed to toggle prompt status:', err);
-      // Rollback on failure
-      setPrompts((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, isUsed: false } : p))
-      );
-      showToast('Failed to update status', 'error');
+      console.error('Failed to update published status:', err);
+      showToast('Failed to update publish category', 'error');
+    } finally {
+      setPublishTargetPrompt(null);
     }
   };
 
@@ -374,8 +427,13 @@ export function App() {
     }
   };
 
-  // Bottom Nav navigation handler
-  const handleTabChange = (tab: 'home' | 'labels') => {
+  // Total published prompts count
+  const publishedCount = useMemo(() => {
+    return prompts.filter((p) => p.isUsed === true).length;
+  }, [prompts]);
+
+  // Bottom Nav & Header navigation handler
+  const handleTabChange = (tab: 'home' | 'categories' | 'labels') => {
     setActiveTab(tab);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -429,24 +487,38 @@ export function App() {
         userProfile={userProfile}
         onGoogleSignIn={handleGoogleSignIn}
         onLogout={handleLogout}
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        publishedCount={publishedCount}
       />
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6">
-        {/* Category Filter Pills */}
-        <CategoryPills
-          categories={categories}
-          activeCategory={activeCategory}
-          onSelectCategory={setActiveCategory}
-          counts={counts}
-        />
+        {/* Category Filter Pills (hidden in Categories view since it has its own Direct/Unreleased subcategories) */}
+        {activeTab !== 'categories' && (
+          <CategoryPills
+            categories={categories}
+            activeCategory={activeCategory}
+            onSelectCategory={setActiveCategory}
+            counts={counts}
+          />
+        )}
 
-        {/* Dynamic Prompts View: Explore Horizontal Reels vs Home Grid */}
+        {/* Dynamic Prompts View: Categories vs Explore Horizontal Reels vs Home Grid */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 text-zinc-400">
             <RefreshCw className="w-8 h-8 animate-spin mb-3 text-zinc-300" />
             <p className="text-xs font-semibold uppercase tracking-wider">Syncing your prompts...</p>
           </div>
+        ) : activeTab === 'categories' ? (
+          /* Categories View (Direct & Unreleased collections with Cards & Horizontal List modes) */
+          <CategoriesView
+            prompts={filteredPrompts}
+            onCardClick={(item) => setSelectedPromptId(item.id)}
+            onCopyPrompt={handleCopyPrompt}
+            onToggleUsed={handleToggleUsed}
+            searchQuery={searchQuery}
+          />
         ) : filteredPrompts.length === 0 ? (
           <EmptyState
             isSearchingOrFiltered={activeCategory !== 'all' || Boolean(searchQuery.trim())}
@@ -488,6 +560,7 @@ export function App() {
         activeTab={activeTab}
         onTabChange={handleTabChange}
         onOpenAddModal={() => setIsAddModalOpen(true)}
+        publishedCount={publishedCount}
       />
 
       {/* Add Prompt Modal */}
@@ -499,18 +572,21 @@ export function App() {
         existingDescriptions={previousDescriptions}
       />
 
-      {/* Prompt Detail Modal (keyed by ID to reset gallery state) */}
+      {/* Prompt Detail Page (keyed by ID to reset gallery state) */}
       <PromptDetailModal
         key={selectedPromptId ?? 'none'}
         item={selectedPrompt}
         onClose={() => setSelectedPromptId(null)}
         onDelete={handleDeletePrompt}
+        onUpdatePrompt={handleUpdatePrompt}
         onCopyPrompt={handleCopyPrompt}
         onSelectLabel={(lbl) => setActiveCategory(lbl)}
         userProfile={userProfile}
         onOpenSecurityModal={() => setIsSecurityModalOpen(true)}
         onToggleUsed={handleToggleUsed}
         onToggleEnableTracking={handleToggleEnableTracking}
+        existingLabels={categories}
+        existingDescriptions={previousDescriptions}
       />
 
       {/* Settings Modal (Security & Reset App) */}
@@ -521,6 +597,14 @@ export function App() {
         onProfileUpdated={(updated) => setUserProfile(updated)}
         showToast={showToast}
         onResetApp={handleResetApp}
+      />
+
+      {/* Publish Category Selection Modal (Direct vs Unreleased) */}
+      <PublishCategoryModal
+        isOpen={publishTargetPrompt !== null}
+        onClose={() => setPublishTargetPrompt(null)}
+        promptTitle={publishTargetPrompt?.title}
+        onConfirm={handleConfirmPublishCategory}
       />
 
       {/* PWA Install Prompt Banner */}

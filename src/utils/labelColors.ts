@@ -8,7 +8,7 @@
  * - Others => Neutral zinc
  */
 
-export type LabelBrand = 'instagram' | 'snapchat' | 'gemini' | 'chatgpt' | 'default';
+export type LabelBrand = 'instagram' | 'snapchat' | 'gemini' | 'chatgpt' | 'unreleased' | 'default';
 
 export function getLabelBrand(tag: string): LabelBrand {
   const norm = (tag || '').trim().toLowerCase().replace(/^#+/, '');
@@ -34,6 +34,16 @@ export function getLabelBrand(tag: string): LabelBrand {
     norm.startsWith('gpt_')
   ) {
     return 'chatgpt';
+  }
+  if (
+    norm === 'unreleased' ||
+    norm === 'unrelease' ||
+    norm.startsWith('unreleased-') ||
+    norm.startsWith('unreleased_') ||
+    norm.startsWith('unrelease-') ||
+    norm.startsWith('unrelease_')
+  ) {
+    return 'unreleased';
   }
   return 'default';
 }
@@ -89,6 +99,17 @@ export function getLabelBadgeClass(
     }
     // Light grey for tags & filters
     return 'bg-zinc-200/85 text-zinc-800 border border-zinc-300 font-semibold hover:bg-zinc-300';
+  }
+
+  if (brand === 'unreleased') {
+    if (variant === 'activePill') {
+      return 'bg-blue-600 text-white font-bold shadow-md shadow-blue-500/25';
+    }
+    if (variant === 'card') {
+      return 'bg-blue-500/90 backdrop-blur-xs text-white font-bold shadow-xs';
+    }
+    // Light blue for tags & filters
+    return 'bg-blue-50 text-blue-700 border border-blue-200 font-semibold hover:bg-blue-100';
   }
 
   // Default Neutral styling

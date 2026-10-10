@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { PromptItem, UserProfile } from '../types/prompt';
+import type { UploadableImage } from '../services/db';
 import {
-  X,
+  ArrowLeft,
+  Edit3,
   Copy,
   Check,
   Trash2,
@@ -12,68 +14,174 @@ import {
   Sparkles,
   Lock,
   ShieldAlert,
+  ShieldCheck,
   Eye,
   EyeOff,
   ListOrdered,
+  AlignLeft,
   Maximize2,
+  Plus,
+  Upload,
+  Loader2,
+  Tag,
+  AlertCircle,
+  KeyRound,
+  X,
+  ChevronDown,
 } from 'lucide-react';
 import { copyToClipboard } from '../utils/clipboard';
 import { getLabelBadgeClass } from '../utils/labelColors';
+import { compressImage } from '../utils/imageCompressor';
 import { ImagePreviewModal } from './ImagePreviewModal';
+
+export interface EditPicItem {
+  id: string;
+  src: string;
+  file?: File;
+  isExisting?: boolean;
+}
 
 interface PromptDetailModalProps {
   item: PromptItem | null;
   onClose: () => void;
   onDelete: (id: string, images?: string[]) => Promise<void>;
+  onUpdatePrompt?: (
+    id: string,
+    updates: Partial<Omit<PromptItem, 'id' | 'created_at'>>,
+    imagesToProcess?: UploadableImage[],
+    oldImageUrls?: string[],
+    onProgress?: (current: number, total: number) => void
+  ) => Promise<void>;
   onCopyPrompt: (promptText: string, title: string) => void;
   onSelectLabel?: (label: string) => void;
   userProfile?: UserProfile | null;
   onOpenSecurityModal?: () => void;
   onToggleUsed?: (id: string, isUsed: boolean) => void;
   onToggleEnableTracking?: (id: string, enable: boolean) => void;
+  existingLabels?: string[];
+  existingDescriptions?: string[];
 }
+
+const MAX_IMAGES = 5;
 
 export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
   item,
   onClose,
   onDelete,
+  onUpdatePrompt,
   onCopyPrompt,
   onSelectLabel,
   userProfile,
   onOpenSecurityModal,
   onToggleUsed,
   onToggleEnableTracking,
+  existingLabels = [],
+  existingDescriptions = [],
 }) => {
+  // Gallery & View State
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [copied, setCopied] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  // Delete State
   const [isDeleting, setIsDeleting] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
-  const [securityInput, setSecurityInput] = useState('');
+  const [deleteSecurityInput, setDeleteSecurityInput] = useState('');
   const [showDeleteAnswer, setShowDeleteAnswer] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Reset state when opening different prompts
+  // Edit Security & Edit Mode State
+  const [isEditingMode, setIsEditingMode] = useState(false);
+  const [showEditAuthModal, setShowEditAuthModal] = useState(false);
+  const [editSecurityInput, setEditSecurityInput] = useState('');
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  const [editSecurityError, setEditSecurityError] = useState<string | null>(null);
+
+  // Edit Form Fields
+  const [editTitle, setEditTitle] = useState('');
+  const [editPrompt, setEditPrompt] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editDescMode, setEditDescMode] = useState<'text' | 'steps'>('text');
+  const [editSteps, setEditSteps] = useState<string[]>(['', '']);
+  const [showEditPrevDesc, setShowEditPrevDesc] = useState(false);
+  const [editLabels, setEditLabels] = useState<string[]>([]);
+  const [editCurrentLabelInput, setEditCurrentLabelInput] = useState('');
+  const [editEnableCheckmark, setEditEnableCheckmark] = useState(false);
+  const [editIsUsed, setEditIsUsed] = useState(false);
+  const [editPublishCategory, setEditPublishCategory] = useState<'direct' | 'unreleased'>('direct');
+  const [editPics, setEditPics] = useState<EditPicItem[]>([]);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [saveProgress, setSaveProgress] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reset states when item changes
   useEffect(() => {
     setCurrentImageIndex(0);
     setCopied(false);
     setShowConfirmDelete(false);
-    setSecurityInput('');
+    setDeleteSecurityInput('');
     setShowDeleteAnswer(false);
     setDeleteError(null);
+    setIsEditingMode(false);
+    setShowEditAuthModal(false);
+    setEditSecurityInput('');
+    setEditSecurityError(null);
   }, [item?.id]);
 
-  // Close on Escape key
+  // Sync edit form fields when entering edit mode or item changes
+  const initEditForm = useCallback((promptItem: PromptItem) => {
+    setEditTitle(promptItem.title || '');
+    setEditPrompt(promptItem.prompt || '');
+    setEditLabels(promptItem.labels || []);
+    setEditEnableCheckmark(Boolean(promptItem.enableCheckmark));
+    setEditIsUsed(Boolean(promptItem.isUsed));
+    setEditPublishCategory(promptItem.publishCategory || 'direct');
+
+    const rawDesc = promptItem.description || '';
+    setEditDescription(rawDesc);
+
+    // Auto-detect if description is in numbered / bullet steps format
+    const lines = rawDesc.split('\n').map((l) => l.trim()).filter(Boolean);
+    const isStepList = lines.length > 1 && lines.every((l) => /^(\d+[\.\)]|[-•*])\s+/.test(l));
+    if (isStepList) {
+      setEditDescMode('steps');
+      setEditSteps(lines.map((l) => l.replace(/^(\d+[\.\)]|[-•*])\s+/, '')));
+    } else {
+      setEditDescMode('text');
+      setEditSteps(lines.length > 0 ? lines : ['', '']);
+    }
+
+    // Initialize pics with existing URLs
+    const initialPics: EditPicItem[] = (promptItem.images || []).map((url, i) => ({
+      id: `existing-${i}-${Date.now()}`,
+      src: url,
+      isExisting: true,
+    }));
+    setEditPics(initialPics);
+    setEditError(null);
+  }, []);
+
+  // Close on Escape key (if not actively deleting or saving)
   useEffect(() => {
     if (!item) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !isDeleting) {
-        onClose();
+      if (e.key === 'Escape' && !isDeleting && !isSavingEdit) {
+        if (showEditAuthModal) {
+          setShowEditAuthModal(false);
+        } else if (isEditingMode) {
+          setIsEditingMode(false);
+        } else if (showConfirmDelete) {
+          setShowConfirmDelete(false);
+        } else {
+          onClose();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [item, isDeleting, onClose]);
+  }, [item, isDeleting, isSavingEdit, showEditAuthModal, isEditingMode, showConfirmDelete, onClose]);
 
   if (!item) return null;
 
@@ -89,6 +197,7 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     }
   };
 
+  // ── Delete Handlers ──
   const handleDelete = async () => {
     try {
       setIsDeleting(true);
@@ -107,7 +216,7 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     e.preventDefault();
     if (!userProfile?.securityAnswer) return;
 
-    if (securityInput.trim().toLowerCase() !== userProfile.securityAnswer.trim().toLowerCase()) {
+    if (deleteSecurityInput.trim().toLowerCase() !== userProfile.securityAnswer.trim().toLowerCase()) {
       setDeleteError('Incorrect secret answer. Prompt cannot be deleted.');
       return;
     }
@@ -115,146 +224,943 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     await handleDelete();
   };
 
+  // ── Edit Security Verification ──
+  const handleTriggerEdit = () => {
+    // If security passkey is configured, require one-time password check
+    if (userProfile?.securityQuestion && userProfile?.securityAnswer) {
+      setEditSecurityInput('');
+      setEditSecurityError(null);
+      setShowEditAuthModal(true);
+    } else {
+      // No security protection set up yet, enter edit mode directly
+      initEditForm(item);
+      setIsEditingMode(true);
+    }
+  };
+
+  const handleVerifyEditPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userProfile?.securityAnswer) return;
+
+    if (editSecurityInput.trim().toLowerCase() !== userProfile.securityAnswer.trim().toLowerCase()) {
+      setEditSecurityError('Incorrect security password / passkey! Verification failed.');
+      return;
+    }
+
+    setShowEditAuthModal(false);
+    initEditForm(item);
+    setIsEditingMode(true);
+  };
+
+  // ── Edit Form Logic ──
+  const handleEditStepChange = (idx: number, val: string) => {
+    const updated = [...editSteps];
+    updated[idx] = val;
+    setEditSteps(updated);
+    const compiled = updated
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s, i) => `${i + 1}. ${s}`)
+      .join('\n');
+    setEditDescription(compiled);
+  };
+
+  const handleAddEditStep = () => {
+    setEditSteps((prev) => [...prev, '']);
+  };
+
+  const handleRemoveEditStep = (idx: number) => {
+    if (editSteps.length <= 1) {
+      setEditSteps(['']);
+      setEditDescription('');
+      return;
+    }
+    const updated = editSteps.filter((_, i) => i !== idx);
+    setEditSteps(updated);
+    const compiled = updated
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s, i) => `${i + 1}. ${s}`)
+      .join('\n');
+    setEditDescription(compiled);
+  };
+
+  const switchToStepsMode = () => {
+    setEditDescMode('steps');
+    if (editDescription.trim()) {
+      const lines = editDescription.split('\n').map((l) => l.trim()).filter(Boolean);
+      const cleaned = lines.map((l) => l.replace(/^(\d+[\.\)]|[-•*])\s+/, ''));
+      setEditSteps(cleaned.length > 0 ? cleaned : ['', '']);
+    } else {
+      setEditSteps(['', '']);
+    }
+  };
+
+  const switchToTextMode = () => {
+    setEditDescMode('text');
+  };
+
+  const handleAddEditLabel = () => {
+    const clean = editCurrentLabelInput.trim().replace(/^#+/, '');
+    if (clean && !editLabels.includes(clean)) {
+      setEditLabels([...editLabels, clean]);
+      setEditCurrentLabelInput('');
+    }
+  };
+
+  const handleRemoveEditLabel = (lblToRemove: string) => {
+    setEditLabels(editLabels.filter((l) => l !== lblToRemove));
+  };
+
+  const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const selectedFiles = Array.from(e.target.files);
+    const remainingSlots = MAX_IMAGES - editPics.length;
+
+    if (remainingSlots <= 0) {
+      setEditError(`Maximum ${MAX_IMAGES} images allowed.`);
+      return;
+    }
+
+    const filesToProcess = selectedFiles.slice(0, remainingSlots);
+    const newItems: EditPicItem[] = [];
+
+    for (const file of filesToProcess) {
+      try {
+        const compressed = await compressImage(file);
+        const objUrl = URL.createObjectURL(compressed);
+        newItems.push({
+          id: `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          src: objUrl,
+          file: compressed,
+          isExisting: false,
+        });
+      } catch (err) {
+        console.error('Failed to process image:', err);
+      }
+    }
+
+    setEditPics((prev) => [...prev, ...newItems]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleRemovePic = (idToRemove: string) => {
+    setEditPics((prev) => {
+      const removed = prev.find((p) => p.id === idToRemove);
+      if (removed?.file && removed.src.startsWith('blob:')) {
+        URL.revokeObjectURL(removed.src);
+      }
+      return prev.filter((p) => p.id !== idToRemove);
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editTitle.trim()) {
+      setEditError('Title is required');
+      return;
+    }
+    if (!editPrompt.trim()) {
+      setEditError('Prompt text is required');
+      return;
+    }
+
+    try {
+      setIsSavingEdit(true);
+      setEditError(null);
+      setSaveProgress('Updating prompt...');
+
+      const uploadableImages: UploadableImage[] = editPics.map((p) => ({
+        file: p.file,
+        url: p.file ? undefined : p.src,
+      }));
+
+      if (onUpdatePrompt) {
+        await onUpdatePrompt(
+          item.id,
+          {
+            title: editTitle.trim(),
+            description: editDescription.trim(),
+            prompt: editPrompt.trim(),
+            labels:
+              editEnableCheckmark && editIsUsed && editPublishCategory === 'unreleased' && !editLabels.includes('unreleased')
+                ? [...editLabels, 'unreleased']
+                : editLabels,
+            enableCheckmark: editEnableCheckmark,
+            isUsed: editEnableCheckmark ? editIsUsed : false,
+            publishCategory: editEnableCheckmark && editIsUsed ? editPublishCategory : undefined,
+          },
+          uploadableImages,
+          item.images || [],
+          (current, total) => {
+            setSaveProgress(`Uploading images (${current}/${total})...`);
+          }
+        );
+      }
+
+      setIsEditingMode(false);
+    } catch (err: unknown) {
+      console.error('Failed to update prompt:', err);
+      setEditError(err instanceof Error ? err.message : 'Failed to save changes');
+    } finally {
+      setIsSavingEdit(false);
+      setSaveProgress(null);
+    }
+  };
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="prompt-detail-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/75 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isDeleting) {
-          onClose();
-        }
-      }}
+      className="fixed inset-0 z-50 bg-[#fbfbf9] overflow-y-auto flex flex-col animate-in fade-in duration-200"
     >
-      <div data-lenis-prevent className="relative w-full max-w-4xl bg-white rounded-[36px] shadow-2xl overflow-hidden my-auto max-h-[92dvh] flex flex-col md:flex-row border border-zinc-200">
-        {/* Close Button */}
+      {/* ── Top Page Navigation Bar ── */}
+      <header className="sticky top-0 z-30 bg-[#fbfbf9]/95 backdrop-blur-md border-b border-zinc-200/80 px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between shadow-xs">
+        {/* Left: Back to Prompts Page Button */}
         <button
           onClick={onClose}
-          disabled={isDeleting}
-          aria-label="Close details"
-          className="absolute top-4 right-4 z-30 w-8 h-8 rounded-full bg-zinc-100/90 hover:bg-zinc-200 text-zinc-700 flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40"
+          disabled={isDeleting || isSavingEdit}
+          className="flex items-center gap-2 px-3.5 py-2 rounded-full bg-white border border-zinc-200/90 hover:bg-zinc-100 hover:border-zinc-300 text-zinc-800 text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+          title="Back to Prompts"
+          aria-label="Back to Prompts"
         >
-          <X className="w-4 h-4" />
+          <ArrowLeft className="w-4 h-4 text-zinc-700" />
+          <span>Back</span>
         </button>
 
-        {/* Left Column: Original Aspect Ratio Image Gallery (Uncropped) */}
-        <div className="w-full md:w-1/2 bg-zinc-950 flex flex-col items-center justify-center relative p-3 sm:p-5 md:p-6 min-h-[260px] md:min-h-[520px] select-none">
-          <div className="relative w-full max-w-[420px] max-h-[48vh] md:max-h-[70vh] flex items-center justify-center rounded-[20px] md:rounded-[24px] overflow-hidden bg-zinc-900/90 border border-white/10 shadow-2xl p-1 md:p-1.5">
-            {totalImages > 0 ? (
-              <div
-                onClick={() => setIsPreviewOpen(true)}
-                className="relative w-full h-full flex items-center justify-center cursor-zoom-in group/img"
-                title="Click to preview full-screen"
-              >
-                <img
-                  src={images[currentImageIndex]}
-                  alt={item.title}
-                  className="w-auto h-auto max-w-full max-h-[46vh] md:max-h-[68vh] object-contain select-none rounded-xl group-hover/img:scale-[1.01] transition-transform duration-200"
-                />
-
-                {/* Click to Preview Indicator Badge */}
-                <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/75 hover:bg-black/90 text-white text-[10px] font-bold backdrop-blur-md opacity-85 sm:opacity-0 sm:group-hover/img:opacity-100 transition-opacity shadow-sm pointer-events-none">
-                  <Maximize2 className="w-3 h-3" />
-                  <span>Full Preview</span>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center p-8 text-zinc-500">
-                <Sparkles className="w-10 h-10 mx-auto mb-2 opacity-40 text-amber-400" />
-                <p className="text-xs">No image attached</p>
-              </div>
-            )}
-
-            {/* Total Images Indicator */}
-            {totalImages > 1 && (
-              <div className="absolute top-3 right-3 flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-[11px] font-semibold pointer-events-none shadow-md">
-                <Layers className="w-3 h-3" />
-                <span>
-                  {currentImageIndex + 1}/{totalImages}
-                </span>
-              </div>
-            )}
-
-            {/* Arrows for multi-image navigation */}
-            {totalImages > 1 && (
-              <>
-                <button
-                  onClick={() =>
-                    setCurrentImageIndex((prev) => (prev - 1 + totalImages) % totalImages)
-                  }
-                  aria-label="Previous image"
-                  className="absolute left-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/85 text-white flex items-center justify-center transition-all cursor-pointer shadow-md active:scale-95"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() =>
-                    setCurrentImageIndex((prev) => (prev + 1) % totalImages)
-                  }
-                  aria-label="Next image"
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/85 text-white flex items-center justify-center transition-all cursor-pointer shadow-md active:scale-95"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </>
-            )}
-          </div>
-
-          {/* Thumbnails row if multiple images */}
-          {totalImages > 1 && (
-            <div className="flex items-center gap-2 mt-3 overflow-x-auto max-w-full px-2 py-1">
-              {images.map((img, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setCurrentImageIndex(idx)}
-                  aria-label={`View image ${idx + 1}`}
-                  className={`w-12 h-14 rounded-lg overflow-hidden border-2 transition-all cursor-pointer ${
-                    idx === currentImageIndex
-                      ? 'border-white scale-105 shadow-md'
-                      : 'border-transparent opacity-60 hover:opacity-100'
-                  }`}
-                >
-                  <img src={img} alt="" className="w-full h-full object-cover" />
-                </button>
-              ))}
-            </div>
-          )}
+        {/* Center: Breadcrumb / View Title */}
+        <div className="hidden sm:flex items-center gap-2 text-xs font-semibold text-zinc-500 truncate max-w-xs md:max-w-md">
+          <span className="flex items-center gap-1.5 text-zinc-700">
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            Prompt Details
+          </span>
+          <span>/</span>
+          <span className="text-zinc-950 font-bold truncate">{item.title}</span>
         </div>
 
-        {/* Right Column: Prompt Details & Action Buttons */}
-        <div className="w-full md:w-1/2 p-6 md:p-8 flex flex-col justify-between overflow-y-auto bg-white">
-          <div className="space-y-4">
-            {/* Meta Row: Date */}
-            <div className="flex items-center text-xs text-zinc-400 font-medium pr-10">
-              <span className="flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5" />
-                {item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Recent'}
+        {/* Right: Quick Action Controls */}
+        <div className="flex items-center gap-2">
+          {!isEditingMode ? (
+            <>
+              {/* Edit Button */}
+              <button
+                onClick={handleTriggerEdit}
+                disabled={isDeleting}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-zinc-900 hover:bg-black active:scale-95 text-white text-xs font-bold transition-all shadow-xs cursor-pointer disabled:opacity-50"
+                title="Edit this prompt"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-amber-300" />
+                <span>Edit</span>
+              </button>
+
+              {/* Copy Button */}
+              <button
+                onClick={handleCopy}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 ${
+                  copied
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-800'
+                }`}
+                title="Copy prompt text"
+              >
+                {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5 text-zinc-600" />}
+                <span className="hidden sm:inline">{copied ? 'Copied' : 'Copy'}</span>
+              </button>
+
+              {/* Delete Trigger */}
+              <button
+                onClick={() => setShowConfirmDelete(true)}
+                disabled={isDeleting}
+                className="p-2 rounded-full bg-white border border-zinc-200 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 text-zinc-600 transition-colors cursor-pointer disabled:opacity-50"
+                title="Delete prompt"
+                aria-label="Delete prompt"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Cancel Edit */}
+              <button
+                onClick={() => setIsEditingMode(false)}
+                disabled={isSavingEdit}
+                className="px-4 py-2 rounded-full bg-white border border-zinc-200 hover:bg-zinc-100 text-zinc-700 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              {/* Save Changes */}
+              <button
+                onClick={handleSaveEdit}
+                disabled={isSavingEdit}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                {isSavingEdit ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Save Changes</span>
+                  </>
+                )}
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+
+      {/* ── Main Page Content ── */}
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24">
+        {isEditingMode ? (
+          /* ========================================================= */
+          /*                     EDIT MODE FORM                         */
+          /* ========================================================= */
+          <div className="bg-white rounded-3xl p-5 sm:p-8 border border-zinc-200/90 shadow-sm space-y-6">
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                  <Edit3 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-extrabold text-zinc-900">Edit Prompt</h2>
+                  <p className="text-xs text-zinc-500">Update prompt details, instructions, tags, and images</p>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Verified
               </span>
             </div>
 
+            {editError && (
+              <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            {saveProgress && (
+              <div className="p-3.5 rounded-2xl bg-sky-50 border border-sky-200 text-sky-800 text-xs font-semibold flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-sky-600" />
+                <span>{saveProgress}</span>
+              </div>
+            )}
+
             {/* Title */}
-            <div>
-              <h1 id="prompt-detail-title" className="text-2xl md:text-3xl font-extrabold text-zinc-900 tracking-tight leading-tight">
-                {item.title}
-              </h1>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-800 uppercase tracking-wider">
+                Title <span className="text-rose-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                placeholder="e.g. Cyberpunk Neon Portrait"
+                className="w-full px-4 py-3 rounded-2xl bg-zinc-50 border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:bg-white text-sm font-semibold transition-all"
+              />
+            </div>
+
+            {/* Description / Steps Mode Switcher */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-zinc-800 uppercase tracking-wider">
+                  Description / Instructions
+                </label>
+                <div className="flex items-center gap-1 bg-zinc-100 p-0.5 rounded-xl border border-zinc-200/80">
+                  <button
+                    type="button"
+                    onClick={switchToTextMode}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      editDescMode === 'text'
+                        ? 'bg-white text-zinc-900 shadow-xs'
+                        : 'text-zinc-500 hover:text-zinc-800'
+                    }`}
+                  >
+                    <AlignLeft className="w-3 h-3" />
+                    <span>Text</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={switchToStepsMode}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      editDescMode === 'steps'
+                        ? 'bg-zinc-900 text-white shadow-xs'
+                        : 'text-zinc-500 hover:text-zinc-800'
+                    }`}
+                  >
+                    <ListOrdered className="w-3 h-3" />
+                    <span>Steps</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Previous Descriptions Suggestion Picker */}
+              {existingDescriptions.length > 0 && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPrevDesc(!showEditPrevDesc)}
+                    className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-800 font-semibold cursor-pointer py-0.5"
+                  >
+                    <span>Use previous description</span>
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                  {showEditPrevDesc && (
+                    <div className="absolute left-0 top-full mt-1 w-full max-h-48 overflow-y-auto bg-white rounded-2xl border border-zinc-200 shadow-lg p-2 z-20 space-y-1">
+                      {existingDescriptions.map((desc, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => {
+                            setEditDescription(desc);
+                            setShowEditPrevDesc(false);
+                            const lines = desc.split('\n').map((l) => l.trim()).filter(Boolean);
+                            const isStepList = lines.length > 1 && lines.every((l) => /^(\d+[\.\)]|[-•*])\s+/.test(l));
+                            if (isStepList) {
+                              setEditDescMode('steps');
+                              setEditSteps(lines.map((l) => l.replace(/^(\d+[\.\)]|[-•*])\s+/, '')));
+                            }
+                          }}
+                          className="w-full text-left p-2 rounded-xl hover:bg-zinc-50 text-xs text-zinc-700 truncate cursor-pointer"
+                        >
+                          {desc}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {editDescMode === 'steps' ? (
+                <div className="space-y-2 p-3.5 bg-zinc-50/80 rounded-2xl border border-zinc-200/80">
+                  {editSteps.map((step, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-full bg-zinc-900 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      <input
+                        type="text"
+                        value={step}
+                        onChange={(e) => handleEditStepChange(idx, e.target.value)}
+                        placeholder={`Step ${idx + 1}...`}
+                        className="flex-1 px-3 py-2 rounded-xl bg-white border border-zinc-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveEditStep(idx)}
+                        className="p-1.5 text-zinc-400 hover:text-rose-600 rounded-lg cursor-pointer"
+                        title="Remove step"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={handleAddEditStep}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-zinc-700 hover:text-zinc-950 cursor-pointer pt-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Step</span>
+                  </button>
+                </div>
+              ) : (
+                <textarea
+                  rows={3}
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  placeholder="Add details, camera settings, or workflow guidelines..."
+                  className="w-full px-4 py-3 rounded-2xl bg-zinc-50 border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:bg-white text-xs font-medium leading-relaxed transition-all resize-y"
+                />
+              )}
+            </div>
+
+            {/* AI Prompt Text */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-800 uppercase tracking-wider flex items-center justify-between">
+                <span>Prompt Text <span className="text-rose-500">*</span></span>
+                <span className="text-[11px] text-zinc-400 font-mono">{editPrompt.length} chars</span>
+              </label>
+              <textarea
+                rows={5}
+                value={editPrompt}
+                onChange={(e) => setEditPrompt(e.target.value)}
+                placeholder="The exact prompt to generate this image..."
+                className="w-full p-4 rounded-2xl bg-zinc-950 text-zinc-100 font-mono text-xs sm:text-sm leading-relaxed border border-zinc-800 focus:outline-none focus:ring-2 focus:ring-amber-400/50 transition-all resize-y"
+              />
+            </div>
+
+            {/* Labels / Tags */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-zinc-800 uppercase tracking-wider flex items-center gap-1.5">
+                <Tag className="w-3.5 h-3.5 text-zinc-600" />
+                <span>Tags / Labels</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={editCurrentLabelInput}
+                  onChange={(e) => setEditCurrentLabelInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddEditLabel();
+                    }
+                  }}
+                  placeholder="e.g. unreleased, gemini, portrait"
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-zinc-50 border border-zinc-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddEditLabel}
+                  className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-black text-white text-xs font-bold transition-all cursor-pointer"
+                >
+                  Add Tag
+                </button>
+              </div>
+
+              {/* Tag Chips */}
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {editLabels.map((lbl) => (
+                  <span
+                    key={lbl}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${getLabelBadgeClass(
+                      lbl,
+                      'pill'
+                    )}`}
+                  >
+                    #{lbl}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveEditLabel(lbl)}
+                      className="hover:opacity-75 cursor-pointer ml-0.5"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+
+              {/* Existing Labels Suggestion Chips */}
+              {existingLabels.length > 0 && (
+                <div className="pt-1">
+                  <p className="text-[11px] text-zinc-400 font-medium mb-1">Suggested:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {existingLabels.slice(0, 8).map((lbl) => (
+                      <button
+                        key={lbl}
+                        type="button"
+                        onClick={() => {
+                          if (!editLabels.includes(lbl)) {
+                            setEditLabels([...editLabels, lbl]);
+                          }
+                        }}
+                        className={`text-[11px] px-2.5 py-0.5 rounded-full border border-zinc-200 text-zinc-600 hover:bg-zinc-100 cursor-pointer ${
+                          editLabels.includes(lbl) ? 'opacity-40 pointer-events-none' : ''
+                        }`}
+                      >
+                        +{lbl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Social Upload Tracking Options */}
+            <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200/90 space-y-3">
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editEnableCheckmark}
+                  onChange={(e) => setEditEnableCheckmark(e.target.checked)}
+                  className="w-4 h-4 rounded text-zinc-900 focus:ring-zinc-900 accent-zinc-900 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-zinc-900">
+                  Enable Social Upload Status Tracking (🔴 Red / 🟢 Green Dot)
+                </span>
+              </label>
+
+              {editEnableCheckmark && (
+                <div className="pl-6 flex items-center gap-4 text-xs font-semibold text-zinc-700">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="editStatus"
+                      checked={!editIsUsed}
+                      onChange={() => setEditIsUsed(false)}
+                      className="accent-rose-500 cursor-pointer"
+                    />
+                    <span className="text-rose-700 font-bold">🔴 Pending Upload (No)</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="editStatus"
+                      checked={editIsUsed}
+                      onChange={() => setEditIsUsed(true)}
+                      className="accent-emerald-600 cursor-pointer"
+                    />
+                    <span className="text-emerald-800 font-bold">🟢 Uploaded & Used (Yes)</span>
+                  </label>
+                </div>
+              )}
+
+              {/* Sub-category selector if marked as used */}
+              {editEnableCheckmark && editIsUsed && (
+                <div className="pl-6 pt-2 border-t border-zinc-200/60 flex items-center gap-3">
+                  <span className="text-[11px] font-bold text-zinc-600">Category:</span>
+                  <label className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-zinc-800">
+                    <input
+                      type="radio"
+                      name="editPubCategory"
+                      checked={editPublishCategory === 'direct'}
+                      onChange={() => setEditPublishCategory('direct')}
+                      className="accent-zinc-900 cursor-pointer"
+                    />
+                    <span>Direct</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-blue-700">
+                    <input
+                      type="radio"
+                      name="editPubCategory"
+                      checked={editPublishCategory === 'unreleased'}
+                      onChange={() => setEditPublishCategory('unreleased')}
+                      className="accent-blue-600 cursor-pointer"
+                    />
+                    <span>Unreleased</span>
+                  </label>
+                </div>
+              )}
+            </div>
+
+            {/* Images Manager */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-zinc-800 uppercase tracking-wider">
+                  Images ({editPics.length}/{MAX_IMAGES})
+                </label>
+                {editPics.length < MAX_IMAGES && (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-1 text-xs font-bold text-zinc-800 hover:text-black cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Upload Image</span>
+                  </button>
+                )}
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={handleFilesSelected}
+                className="hidden"
+              />
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                {editPics.map((pic, idx) => (
+                  <div
+                    key={pic.id}
+                    className="relative aspect-9-16 rounded-2xl overflow-hidden bg-zinc-900 border border-zinc-200 group/pic shadow-xs"
+                  >
+                    <img src={pic.src} alt="" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePic(pic.id)}
+                      className="absolute top-2 right-2 p-1.5 rounded-full bg-rose-600/90 hover:bg-rose-700 text-white transition-all cursor-pointer shadow-md"
+                      title="Remove image"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                    <span className="absolute bottom-2 left-2 px-1.5 py-0.5 rounded-md bg-black/70 text-white text-[9px] font-bold">
+                      #{idx + 1}
+                    </span>
+                  </div>
+                ))}
+
+                {editPics.length < MAX_IMAGES && (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="aspect-9-16 rounded-2xl border-2 border-dashed border-zinc-300 hover:border-zinc-500 bg-zinc-50/50 hover:bg-zinc-100 flex flex-col items-center justify-center p-3 text-zinc-500 transition-all cursor-pointer"
+                  >
+                    <Upload className="w-5 h-5 mb-1.5 text-zinc-400" />
+                    <span className="text-[11px] font-bold text-zinc-600">Add Pic</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Bottom Form Actions */}
+            <div className="pt-4 border-t border-zinc-100 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setIsEditingMode(false)}
+                disabled={isSavingEdit}
+                className="px-5 py-2.5 rounded-full border border-zinc-200 text-zinc-700 text-xs font-bold hover:bg-zinc-100 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={isSavingEdit}
+                className="flex items-center gap-2 px-7 py-2.5 rounded-full bg-zinc-900 hover:bg-black text-white text-xs font-bold transition-all shadow-md cursor-pointer disabled:opacity-50 active:scale-95"
+              >
+                {isSavingEdit ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Save Changes</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* ========================================================= */
+          /*                     PAGE VIEW (DISPLAY)                   */
+          /* ========================================================= */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            {/* Left Column: Image Stage (Original Aspect Ratio & Lightbox) */}
+            <div className="lg:col-span-5 flex flex-col items-center">
+              <div className="w-full max-w-[440px] bg-zinc-950 rounded-3xl p-3 sm:p-4 border border-zinc-900 shadow-xl flex flex-col items-center relative select-none">
+                <div className="relative w-full flex items-center justify-center rounded-2xl overflow-hidden bg-zinc-900/95 min-h-[320px] max-h-[550px]">
+                  {totalImages > 0 ? (
+                    <div
+                      onClick={() => setIsPreviewOpen(true)}
+                      className="relative w-full h-full flex items-center justify-center cursor-zoom-in group/img py-2"
+                      title="Click to view original full size"
+                    >
+                      <img
+                        src={images[currentImageIndex]}
+                        alt={item.title}
+                        className="w-auto h-auto max-w-full max-h-[520px] object-contain rounded-xl select-none group-hover/img:scale-[1.01] transition-transform duration-200"
+                      />
+
+                      {/* Full preview pill badge */}
+                      <div className="absolute bottom-3 left-3 flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/80 hover:bg-black text-white text-[11px] font-bold backdrop-blur-md opacity-90 transition-opacity shadow-sm pointer-events-none">
+                        <Maximize2 className="w-3.5 h-3.5" />
+                        <span>Full Preview</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center p-12 text-zinc-500">
+                      <Sparkles className="w-12 h-12 mx-auto mb-2 text-amber-400 opacity-60" />
+                      <p className="text-xs font-semibold">No image attached</p>
+                    </div>
+                  )}
+
+                  {/* Multi-image indicators */}
+                  {totalImages > 1 && (
+                    <div className="absolute top-3 right-3 flex items-center gap-1 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md text-white text-[11px] font-semibold pointer-events-none shadow-md">
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>{currentImageIndex + 1}/{totalImages}</span>
+                    </div>
+                  )}
+
+                  {/* Left & Right navigation arrows */}
+                  {totalImages > 1 && (
+                    <>
+                      <button
+                        onClick={() => setCurrentImageIndex((prev) => (prev - 1 + totalImages) % totalImages)}
+                        aria-label="Previous image"
+                        className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/65 hover:bg-black/90 text-white flex items-center justify-center transition-all cursor-pointer shadow-md active:scale-95"
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <button
+                        onClick={() => setCurrentImageIndex((prev) => (prev + 1) % totalImages)}
+                        aria-label="Next image"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/65 hover:bg-black/90 text-white flex items-center justify-center transition-all cursor-pointer shadow-md active:scale-95"
+                      >
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {/* Thumbnails rail */}
+                {totalImages > 1 && (
+                  <div className="flex items-center gap-2 mt-3.5 overflow-x-auto max-w-full px-1 py-1">
+                    {images.map((img, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setCurrentImageIndex(idx)}
+                        aria-label={`View image ${idx + 1}`}
+                        className={`w-12 h-14 rounded-xl overflow-hidden border-2 transition-all cursor-pointer shrink-0 ${
+                          idx === currentImageIndex
+                            ? 'border-white scale-105 shadow-md ring-2 ring-white/30'
+                            : 'border-transparent opacity-60 hover:opacity-100'
+                        }`}
+                      >
+                        <img src={img} alt="" className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right Column: Editorial Prompt Details */}
+            <div className="lg:col-span-7 bg-white rounded-3xl p-6 sm:p-8 border border-zinc-200/90 shadow-sm space-y-6">
+              {/* Meta & Tags Row */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-zinc-100">
+                {/* Labels / Brand Tags (Supports #unreleased in light blue) */}
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  {item.labels && item.labels.length > 0 ? (
+                    item.labels.map((lbl) => (
+                      <button
+                        key={lbl}
+                        onClick={() => {
+                          onSelectLabel?.(lbl);
+                          onClose();
+                        }}
+                        className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${getLabelBadgeClass(
+                          lbl,
+                          'pill'
+                        )}`}
+                      >
+                        #{lbl}
+                      </button>
+                    ))
+                  ) : (
+                    <span className="text-xs text-zinc-400 font-medium">Uncategorized</span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 text-xs text-zinc-400 font-medium">
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>{item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Recent'}</span>
+                </div>
+              </div>
+
+              {/* Title */}
+              <div>
+                <h1
+                  id="prompt-detail-title"
+                  className="text-2xl sm:text-3xl font-black text-zinc-950 tracking-tight leading-tight"
+                >
+                  {item.title}
+                </h1>
+              </div>
+
+              {/* Social Upload Status Banner */}
+              {item.enableCheckmark ? (
+                item.isUsed ? (
+                  /* Completed / Uploaded (Green) */
+                  <div className="p-4 rounded-2xl bg-emerald-50/90 border border-emerald-200 flex items-center justify-between gap-3 shadow-2xs">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <Check className="w-4 h-4 stroke-[3]" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-emerald-950">Published & Used</span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                              item.publishCategory === 'unreleased'
+                                ? 'bg-blue-100 text-blue-900 border border-blue-200'
+                                : 'bg-emerald-200/90 text-emerald-900 border border-emerald-300'
+                            }`}
+                          >
+                            {item.publishCategory === 'unreleased' ? 'Unreleased' : 'Direct'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-emerald-700 mt-0.5">
+                          {item.publishCategory === 'unreleased'
+                            ? 'Saved under Unreleased collection in Categories.'
+                            : 'Live published directly to Instagram feed.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="px-3 py-1.5 rounded-xl bg-white border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-2xs">
+                      <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+                      <span>Completed</span>
+                    </div>
+                  </div>
+                ) : (
+                  /* Pending / Not Uploaded (Red) */
+                  <div className="p-4 rounded-2xl bg-rose-50/90 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="relative flex h-3.5 w-3.5 shrink-0 ml-1">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500 shadow-xs" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-rose-950">Pending Upload</span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-200/90 text-rose-900 border border-rose-300">
+                            No
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-rose-700 mt-0.5">
+                          Rough prompt ready — not yet uploaded to Instagram.
+                        </p>
+                      </div>
+                    </div>
+
+                    {onToggleUsed && (
+                      <button
+                        onClick={() => onToggleUsed(item.id, true)}
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs font-bold shrink-0 transition-all cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
+                      >
+                        <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <span>Mark as Used (Yes)</span>
+                      </button>
+                    )}
+                  </div>
+                )
+              ) : (
+                /* Option to turn on social tracking */
+                onToggleEnableTracking && (
+                  <div className="p-3.5 rounded-2xl border border-zinc-200 bg-zinc-50 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold text-zinc-900">Social Status Tracking</p>
+                      <p className="text-[11px] text-zinc-500 mt-0.5">
+                        Enable red/green dot tracking for Instagram upload status.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => onToggleEnableTracking(item.id, true)}
+                      className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-black text-white text-xs font-bold shrink-0 transition-all cursor-pointer shadow-xs active:scale-95"
+                    >
+                      + Enable Tracking
+                    </button>
+                  </div>
+                )
+              )}
+
+              {/* Description / Step-by-Step Instructions */}
               {item.description && (() => {
                 const lines = item.description.split('\n').map((l) => l.trim()).filter(Boolean);
                 const isStepList = lines.length > 1 && lines.every((l) => /^(\d+[\.\)]|[-•*])\s+/.test(l));
 
                 if (isStepList) {
                   return (
-                    <div className="mt-3 p-3.5 rounded-2xl bg-zinc-50 border border-zinc-200/80 space-y-2">
+                    <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200/80 space-y-2.5">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-800 uppercase tracking-wider">
-                        <ListOrdered className="w-3.5 h-3.5 text-zinc-700" />
+                        <ListOrdered className="w-4 h-4 text-zinc-700" />
                         <span>Steps / How to Use</span>
                       </div>
-                      <div className="space-y-1.5 pt-0.5">
+                      <div className="space-y-2 pt-1">
                         {lines.map((line, idx) => {
                           const cleanText = line.replace(/^(\d+[\.\)]|[-•*])\s+/, '');
                           return (
-                            <div key={idx} className="flex items-start gap-2.5 text-xs text-zinc-700 font-medium">
-                              <span className="w-5 h-5 rounded-full bg-zinc-900 text-white font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
+                            <div key={idx} className="flex items-start gap-2.5 text-xs text-zinc-800 font-medium">
+                              <span className="w-5 h-5 rounded-full bg-zinc-900 text-white font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">
                                 {idx + 1}
                               </span>
                               <span className="leading-relaxed flex-1 pt-0.5">{cleanText}</span>
@@ -267,236 +1173,132 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
                 }
 
                 return (
-                  <p className="mt-2 text-sm text-zinc-600 leading-relaxed font-normal whitespace-pre-line">
-                    {item.description}
-                  </p>
-                );
-              })()}
-            </div>
-
-            {/* Social Upload Status Banner */}
-            {item.enableCheckmark ? (
-              item.isUsed ? (
-                /* Completed State (Green) - One-way: once used, stays completed */
-                <div className="p-3.5 sm:p-4 rounded-2xl bg-emerald-50/90 border border-emerald-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                      <Check className="w-4 h-4 stroke-[2.5]" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-emerald-950">Uploaded & Used</span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200/80 text-emerald-900 border border-emerald-300/60">
-                          Yes
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-emerald-700/90 mt-0.5 leading-tight">
-                        This prompt has been posted to Instagram.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="self-start sm:self-auto px-3 py-1.5 rounded-xl bg-white/90 border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-xs">
-                    <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
-                    <span>Completed</span>
-                  </div>
-                </div>
-              ) : (
-                /* Pending State (Red) - Tap button to mark as Used (Yes) */
-                <div className="p-3.5 sm:p-4 rounded-2xl bg-rose-50/90 border border-rose-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="relative flex h-3 w-3 shrink-0 ml-0.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500 shadow-xs" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-rose-950">Pending Upload</span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-200/80 text-rose-900 border border-rose-300/60">
-                          No
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-rose-700/90 mt-0.5 leading-tight">
-                        Rough prompt not posted on Instagram yet.
-                      </p>
-                    </div>
-                  </div>
-
-                  {onToggleUsed && (
-                    <button
-                      onClick={() => onToggleUsed(item.id, true)}
-                      className="w-full sm:w-auto px-4 py-2 sm:py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs font-bold shrink-0 transition-all cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
-                    >
-                      <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-                      <span>Mark Used (Yes)</span>
-                    </button>
-                  )}
-                </div>
-              )
-            ) : (
-              /* Option to enable tracking for existing prompts */
-              onToggleEnableTracking && (
-                <div className="p-3.5 rounded-2xl border border-zinc-200 bg-zinc-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold text-zinc-900">Social Status Tracking</p>
-                    <p className="text-[11px] text-zinc-500 mt-0.5 leading-tight">
-                      Track whether this prompt is pending or uploaded to Instagram.
+                  <div className="space-y-1">
+                    <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Description</span>
+                    <p className="text-sm text-zinc-700 leading-relaxed font-normal whitespace-pre-line">
+                      {item.description}
                     </p>
                   </div>
-                  <button
-                    onClick={() => onToggleEnableTracking(item.id, true)}
-                    className="w-full sm:w-auto px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-black text-white text-xs font-bold shrink-0 transition-all cursor-pointer shadow-sm active:scale-95"
-                  >
-                    + Enable Tracking
-                  </button>
+                );
+              })()}
+
+              {/* Full AI Prompt Box */}
+              <div className="space-y-2 pt-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    Full Prompt
+                  </span>
+                  <span className="text-[11px] text-zinc-400 font-mono">
+                    {item.prompt.length} chars
+                  </span>
                 </div>
-              )
-            )}
 
-            {/* Labels / Tags */}
-            {item.labels && item.labels.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {item.labels.map((lbl) => (
-                  <button
-                    key={lbl}
-                    onClick={() => {
-                      onSelectLabel?.(lbl);
-                      onClose();
-                    }}
-                    className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${getLabelBadgeClass(
-                      lbl,
-                      'card'
-                    )}`}
-                  >
-                    #{lbl}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Full AI Prompt Box */}
-            <div className="mt-4 pt-2">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-zinc-700" />
-                  Full Prompt Text
-                </span>
-                <span className="text-[11px] text-zinc-400 font-mono">
-                  {item.prompt.length} chars
-                </span>
+                <div className="p-4 sm:p-5 rounded-2xl bg-zinc-950 text-zinc-100 font-mono text-xs sm:text-sm leading-relaxed border border-zinc-800 shadow-inner select-text max-h-64 overflow-y-auto">
+                  <p className="whitespace-pre-wrap">{item.prompt}</p>
+                </div>
               </div>
 
-              <div className="p-4 rounded-2xl bg-zinc-900 text-zinc-100 font-mono text-xs sm:text-sm leading-relaxed border border-zinc-800 shadow-inner relative select-text max-h-48 overflow-y-auto">
-                <p className="whitespace-pre-wrap">{item.prompt}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Bottom Actions */}
-          <div className="pt-6 mt-6 border-t border-zinc-100">
-            {showConfirmDelete ? (
-              userProfile?.securityQuestion && userProfile?.securityAnswer ? (
-                /* Delete Protected with Secret Question / PIN */
-                <form onSubmit={handleSecurityDelete} className="p-4 bg-rose-50/90 rounded-2xl border border-rose-200 space-y-2.5 animate-in fade-in duration-150">
-                  <div className="flex items-center gap-2 text-rose-900 font-bold text-xs">
-                    <Lock className="w-4 h-4 text-rose-600 shrink-0" />
-                    <span>Security Check: {userProfile.securityQuestion}</span>
-                  </div>
-                  <div className="relative">
-                    <input
-                      type={showDeleteAnswer ? 'text' : 'password'}
-                      value={securityInput}
-                      onChange={(e) => {
-                        setSecurityInput(e.target.value);
-                        setDeleteError(null);
-                      }}
-                      placeholder="Type your secret answer to delete"
-                      autoFocus
-                      disabled={isDeleting}
-                      className="w-full pl-3.5 pr-10 py-2.5 rounded-xl bg-white border border-rose-200 text-base sm:text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-rose-500 disabled:opacity-60"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowDeleteAnswer(!showDeleteAnswer)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-rose-400 hover:text-rose-600 cursor-pointer"
-                      title={showDeleteAnswer ? 'Hide answer' : 'Show answer'}
-                    >
-                      {showDeleteAnswer ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  {deleteError && (
-                    <p className="text-[11px] font-bold text-rose-600">{deleteError}</p>
+              {/* Delete Confirmation Form / Danger Area */}
+              {showConfirmDelete && (
+                <div className="pt-2 animate-in fade-in duration-150">
+                  {userProfile?.securityQuestion && userProfile?.securityAnswer ? (
+                    <form onSubmit={handleSecurityDelete} className="p-4 bg-rose-50/90 rounded-2xl border border-rose-200 space-y-3">
+                      <div className="flex items-center gap-2 text-rose-900 font-bold text-xs">
+                        <Lock className="w-4 h-4 text-rose-600 shrink-0" />
+                        <span>Security Check: {userProfile.securityQuestion}</span>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={showDeleteAnswer ? 'text' : 'password'}
+                          value={deleteSecurityInput}
+                          onChange={(e) => {
+                            setDeleteSecurityInput(e.target.value);
+                            setDeleteError(null);
+                          }}
+                          placeholder="Type secret answer to delete"
+                          autoFocus
+                          disabled={isDeleting}
+                          className="w-full pl-3.5 pr-10 py-2.5 rounded-xl bg-white border border-rose-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-rose-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowDeleteAnswer(!showDeleteAnswer)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-rose-400 hover:text-rose-600 cursor-pointer"
+                        >
+                          {showDeleteAnswer ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      {deleteError && <p className="text-[11px] font-bold text-rose-600">{deleteError}</p>}
+                      <div className="flex items-center justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowConfirmDelete(false);
+                            setDeleteSecurityInput('');
+                            setDeleteError(null);
+                          }}
+                          className="px-3.5 py-2 rounded-xl bg-white text-zinc-700 text-xs font-bold border border-zinc-200 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={!deleteSecurityInput.trim() || isDeleting}
+                          className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                        >
+                          {isDeleting ? 'Deleting...' : 'Verify & Delete'}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 space-y-2.5">
+                      <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
+                        <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>Delete Protection Recommended</span>
+                      </div>
+                      <p className="text-xs text-amber-800">
+                        Set up a security question in settings to protect prompts from accidental deletion.
+                      </p>
+                      <div className="flex items-center justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmDelete(false)}
+                          className="px-3.5 py-1.5 rounded-xl bg-white text-zinc-700 text-xs font-bold border border-zinc-200 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowConfirmDelete(false);
+                            onOpenSecurityModal?.();
+                          }}
+                          className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-black text-white text-xs font-bold cursor-pointer"
+                        >
+                          Set Up Protection
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDelete}
+                          disabled={isDeleting}
+                          className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
+                        >
+                          {isDeleting ? 'Deleting...' : 'Delete Anyway'}
+                        </button>
+                      </div>
+                    </div>
                   )}
-                  <div className="flex items-center justify-end gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowConfirmDelete(false);
-                        setSecurityInput('');
-                        setDeleteError(null);
-                        setShowDeleteAnswer(false);
-                      }}
-                      disabled={isDeleting}
-                      className="px-3.5 py-2 rounded-xl bg-white text-zinc-700 text-xs font-bold border border-zinc-200 hover:bg-zinc-50 cursor-pointer disabled:opacity-40"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={!securityInput.trim() || isDeleting}
-                      className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-50 transition-all cursor-pointer shadow-sm flex items-center gap-1.5"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>{isDeleting ? 'Deleting...' : 'Verify & Delete'}</span>
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                /* Protection not configured yet */
-                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 space-y-2.5 animate-in fade-in duration-150">
-                  <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
-                    <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>Delete Protection Recommended</span>
-                  </div>
-                  <p className="text-xs text-amber-800 leading-relaxed font-normal">
-                    Set up a secret question in settings to protect prompts from accidental deletion.
-                  </p>
-                  <div className="flex items-center justify-end gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmDelete(false)}
-                      className="px-3.5 py-1.5 rounded-xl bg-white text-zinc-700 text-xs font-bold border border-zinc-200 cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowConfirmDelete(false);
-                        onOpenSecurityModal?.();
-                      }}
-                      className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-black text-white text-xs font-bold cursor-pointer"
-                    >
-                      Set Up Protection
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleDelete}
-                      disabled={isDeleting}
-                      className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
-                    >
-                      {isDeleting ? 'Deleting...' : 'Delete Anyway'}
-                    </button>
-                  </div>
                 </div>
-              )
-            ) : (
-              <div className="flex items-center gap-3">
+              )}
+
+              {/* Bottom Large Action Bar */}
+              <div className="pt-4 border-t border-zinc-100 flex items-center gap-3">
                 <button
                   onClick={handleCopy}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-6 rounded-2xl font-bold text-sm transition-all duration-200 cursor-pointer shadow-md ${
+                  className={`flex-1 flex items-center justify-center gap-2 py-3.5 px-6 rounded-2xl font-bold text-sm transition-all shadow-md cursor-pointer ${
                     copied
-                      ? 'bg-emerald-600 text-white shadow-emerald-600/20'
+                      ? 'bg-emerald-600 text-white'
                       : 'bg-zinc-900 hover:bg-black text-white active:scale-98'
                   }`}
                 >
@@ -514,20 +1316,104 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
                 </button>
 
                 <button
-                  onClick={() => setShowConfirmDelete(true)}
-                  className="p-3 rounded-2xl bg-zinc-100 hover:bg-rose-50 hover:text-rose-600 text-zinc-500 transition-colors cursor-pointer"
-                  title="Delete prompt"
-                  aria-label="Delete prompt"
+                  onClick={handleTriggerEdit}
+                  className="flex items-center gap-1.5 py-3.5 px-5 rounded-2xl bg-amber-50 hover:bg-amber-100 text-amber-950 font-bold text-sm border border-amber-200 transition-colors cursor-pointer"
+                  title="Edit prompt"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Edit3 className="w-4 h-4 text-amber-700" />
+                  <span>Edit</span>
                 </button>
               </div>
-            )}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* ── Security Password Verification Modal for Edit ── */}
+      {showEditAuthModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
+        >
+          <div className="relative w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl border border-zinc-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center shadow-xs">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-zinc-900 leading-tight">Security Check Required</h3>
+                  <p className="text-[11px] text-zinc-500">One-time password / secret passkey to edit</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowEditAuthModal(false)}
+                className="w-7 h-7 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-600 flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 text-xs text-amber-900">
+              <span className="font-bold">Security Question:</span>
+              <p className="font-semibold text-amber-950 mt-0.5">{userProfile?.securityQuestion}</p>
+            </div>
+
+            <form onSubmit={handleVerifyEditPassword} className="space-y-3.5">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-zinc-800 uppercase tracking-wider">
+                  Secret Answer / Passkey <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                  <input
+                    type={showEditPassword ? 'text' : 'password'}
+                    value={editSecurityInput}
+                    onChange={(e) => {
+                      setEditSecurityInput(e.target.value);
+                      setEditSecurityError(null);
+                    }}
+                    placeholder="Enter your secret passkey..."
+                    autoFocus
+                    className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-zinc-50 border border-zinc-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPassword(!showEditPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 cursor-pointer"
+                  >
+                    {showEditPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {editSecurityError && (
+                  <p className="text-[11px] font-bold text-rose-600">{editSecurityError}</p>
+                )}
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditAuthModal(false)}
+                  className="px-4 py-2 rounded-full text-xs font-bold text-zinc-600 hover:bg-zinc-100 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!editSecurityInput.trim()}
+                  className="flex items-center gap-1.5 px-5 py-2 rounded-full bg-zinc-900 hover:bg-black text-white text-xs font-bold transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Verify & Unlock</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Full-screen Lightbox Image Preview Modal */}
+      {/* ── Lightbox Image Zoom Modal ── */}
       <ImagePreviewModal
         isOpen={isPreviewOpen}
         images={images}

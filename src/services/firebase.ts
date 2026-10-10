@@ -106,6 +106,7 @@ const mapPromptDoc = (id: string, data: Record<string, any>): PromptItem => ({
   userName: data.userName || '',
   enableCheckmark: data.enableCheckmark === true,
   isUsed: data.isUsed === true,
+  publishCategory: data.publishCategory || (Array.isArray(data.labels) && data.labels.some((l: string) => (l || '').toLowerCase() === 'unreleased') ? 'unreleased' : (data.isUsed ? 'direct' : undefined)),
 });
 
 export const fetchFirebasePrompts = async (userId: string): Promise<PromptItem[]> => {
@@ -142,6 +143,7 @@ export const insertFirebasePrompt = async (
     userName: prompt.userName || auth.currentUser?.displayName || 'Creator',
     enableCheckmark: Boolean(prompt.enableCheckmark),
     isUsed: Boolean(prompt.isUsed),
+    publishCategory: prompt.publishCategory || (Boolean(prompt.isUsed) ? 'direct' : undefined),
   };
 
   const docRef = await addDoc(collection(db, 'prompts'), row);
