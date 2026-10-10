@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { X, Upload, Plus, Trash2, Sparkles, Tag, AlertCircle, Link, Loader2, ChevronDown, ListOrdered, AlignLeft, Eye, Cpu } from 'lucide-react';
 import type { PromptItem } from '../types/prompt';
 import type { UploadableImage } from '../services/db';
@@ -59,6 +59,18 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
       return [];
     }
   });
+
+  // Independent list of models for bypass evaluation (Nano Pro, Nano 2.1, plus any custom models)
+  const bypassModelsList = useMemo(() => {
+    const list = ['Nano Pro', 'Nano 2.1'];
+    customModels.forEach((m) => {
+      if (!list.includes(m) && m !== 'Both') {
+        list.push(m);
+      }
+    });
+    return list;
+  }, [customModels]);
+
   const [selectedModel, setSelectedModel] = useState<string>('Nano Pro');
   const [isAddingModel, setIsAddingModel] = useState<boolean>(false);
   const [newModelInput, setNewModelInput] = useState<string>('');
@@ -403,14 +415,11 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
         url: p.file ? undefined : p.src,
       }));
 
-      // Prepare bypass map for the selected model(s)
-      const relevantBypass: Record<string, 'easily_pass' | 'difficult_to_bypass'> = {};
-      if (selectedModel === 'Both') {
-        relevantBypass['Nano Pro'] = modelBypass['Nano Pro'] || 'easily_pass';
-        relevantBypass['Nano 2.1'] = modelBypass['Nano 2.1'] || 'easily_pass';
-      } else {
-        relevantBypass[selectedModel] = modelBypass[selectedModel] || 'easily_pass';
-      }
+      // Prepare bypass map for ALL evaluated models (Nano Pro, Nano 2.1, plus custom models)
+      const finalBypass: Record<string, 'easily_pass' | 'difficult_to_bypass'> = {};
+      bypassModelsList.forEach((m: string) => {
+        finalBypass[m] = modelBypass[m] || 'easily_pass';
+      });
 
       await onSave(
         {
@@ -421,7 +430,7 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
           enableCheckmark,
           isUsed: false, // Default is "No" (Pending) as requested by user
           modelUsed: selectedModel,
-          modelBypass: relevantBypass,
+          modelBypass: finalBypass,
         },
         uploadableList,
         (current, total) => {
@@ -757,102 +766,54 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
               )}
             </div>
 
-            {/* Success Ratio / Bypass Difficulty Selector */}
-            <div className="pt-3 border-t border-zinc-200/80 space-y-2">
-              <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider">
-                Success Ratio / Bypass Difficulty
-              </label>
+            {/* Query 2: Success Ratio / Bypass Difficulty (Independent for all models) */}
+            <div className="pt-3 border-t border-zinc-200/80 space-y-2.5">
+              <div>
+                <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider">
+                  Success Ratio / Bypass Difficulty
+                </label>
+                <p className="text-[11px] text-zinc-500">
+                  Select pass/bypass status for each model
+                </p>
+              </div>
 
-              {selectedModel === 'Both' ? (
-                <div className="space-y-2">
-                  {/* Nano Pro */}
-                  <div className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-zinc-800">Nano Pro:</span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => handleSetBypass('Nano Pro', 'easily_pass')}
-                        className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                          (modelBypass['Nano Pro'] || 'easily_pass') === 'easily_pass'
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                        }`}
-                      >
-                        ✓ Easily Pass
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSetBypass('Nano Pro', 'difficult_to_bypass')}
-                        className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                          modelBypass['Nano Pro'] === 'difficult_to_bypass'
-                            ? 'bg-amber-600 text-white shadow-xs'
-                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                        }`}
-                      >
-                        ⚠ Difficult to Bypass
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Nano 2.1 */}
-                  <div className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-zinc-800">Nano 2.1:</span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => handleSetBypass('Nano 2.1', 'easily_pass')}
-                        className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                          (modelBypass['Nano 2.1'] || 'easily_pass') === 'easily_pass'
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                        }`}
-                      >
-                        ✓ Easily Pass
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSetBypass('Nano 2.1', 'difficult_to_bypass')}
-                        className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                          modelBypass['Nano 2.1'] === 'difficult_to_bypass'
-                            ? 'bg-amber-600 text-white shadow-xs'
-                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                        }`}
-                      >
-                        ⚠ Difficult to Bypass
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                /* Single Model Selected */
-                <div className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-zinc-800">{selectedModel}:</span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => handleSetBypass(selectedModel, 'easily_pass')}
-                      className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                        (modelBypass[selectedModel] || 'easily_pass') === 'easily_pass'
-                          ? 'bg-emerald-600 text-white shadow-xs'
-                          : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                      }`}
+              <div className="space-y-2">
+                {bypassModelsList.map((modelName: string) => {
+                  const currentStatus = modelBypass[modelName] || 'easily_pass';
+                  return (
+                    <div
+                      key={modelName}
+                      className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs"
                     >
-                      ✓ Easily Pass
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSetBypass(selectedModel, 'difficult_to_bypass')}
-                      className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                        modelBypass[selectedModel] === 'difficult_to_bypass'
-                          ? 'bg-amber-600 text-white shadow-xs'
-                          : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                      }`}
-                    >
-                      ⚠ Difficult to Bypass
-                    </button>
-                  </div>
-                </div>
-              )}
+                      <span className="text-xs font-bold text-zinc-800">{modelName}:</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSetBypass(modelName, 'easily_pass')}
+                          className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                            currentStatus === 'easily_pass'
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                          }`}
+                        >
+                          ✓ Easily Pass
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSetBypass(modelName, 'difficult_to_bypass')}
+                          className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                            currentStatus === 'difficult_to_bypass'
+                              ? 'bg-amber-600 text-white shadow-xs'
+                              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                          }`}
+                        >
+                          ⚠ Difficult to Bypass
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
 

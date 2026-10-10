@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { PromptItem, UserProfile } from '../types/prompt';
 import type { UploadableImage } from '../services/db';
 import {
@@ -129,6 +129,24 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     'Nano Pro': 'easily_pass',
     'Nano 2.1': 'easily_pass',
   });
+
+  // Independent list of models for bypass evaluation in edit mode
+  const editBypassModelsList = useMemo(() => {
+    const list = ['Nano Pro', 'Nano 2.1'];
+    customModels.forEach((m) => {
+      if (!list.includes(m) && m !== 'Both') {
+        list.push(m);
+      }
+    });
+    if (item?.modelBypass) {
+      Object.keys(item.modelBypass).forEach((m) => {
+        if (!list.includes(m) && m !== 'Both') {
+          list.push(m);
+        }
+      });
+    }
+    return list;
+  }, [customModels, item?.modelBypass]);
 
   const [editPics, setEditPics] = useState<EditPicItem[]>([]);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
@@ -565,6 +583,12 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
         }
       }
 
+      // Prepare bypass map for ALL evaluated models
+      const finalBypass: Record<string, 'easily_pass' | 'difficult_to_bypass'> = {};
+      editBypassModelsList.forEach((m: string) => {
+        finalBypass[m] = editModelBypass[m] || 'easily_pass';
+      });
+
       if (onUpdatePrompt) {
         await onUpdatePrompt(
           item.id,
@@ -577,7 +601,7 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
             isUsed: editEnableCheckmark ? editIsUsed : false,
             publishCategory: editEnableCheckmark && editIsUsed ? editPublishCategory : (null as any),
             modelUsed: editModelUsed,
-            modelBypass: editModelBypass,
+            modelBypass: finalBypass,
           },
           uploadableImages,
           item.images || [],
@@ -1104,102 +1128,54 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
                 )}
               </div>
 
-              {/* Success Ratio / Bypass Difficulty Selector */}
-              <div className="pt-3 border-t border-zinc-200/80 space-y-2">
-                <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider">
-                  Success Ratio / Bypass Difficulty
-                </label>
+              {/* Query 2: Success Ratio / Bypass Difficulty (Independent for all models) */}
+              <div className="pt-3 border-t border-zinc-200/80 space-y-2.5">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider">
+                    Success Ratio / Bypass Difficulty
+                  </label>
+                  <p className="text-[11px] text-zinc-500">
+                    Select pass/bypass status for each model
+                  </p>
+                </div>
 
-                {editModelUsed === 'Both' ? (
-                  <div className="space-y-2">
-                    {/* Nano Pro */}
-                    <div className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <span className="text-xs font-bold text-zinc-800">Nano Pro:</span>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleSetEditBypass('Nano Pro', 'easily_pass')}
-                          className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                            (editModelBypass['Nano Pro'] || 'easily_pass') === 'easily_pass'
-                              ? 'bg-emerald-600 text-white shadow-xs'
-                              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                          }`}
-                        >
-                          ✓ Easily Pass
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSetEditBypass('Nano Pro', 'difficult_to_bypass')}
-                          className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                            editModelBypass['Nano Pro'] === 'difficult_to_bypass'
-                              ? 'bg-amber-600 text-white shadow-xs'
-                              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                          }`}
-                        >
-                          ⚠ Difficult to Bypass
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Nano 2.1 */}
-                    <div className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <span className="text-xs font-bold text-zinc-800">Nano 2.1:</span>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleSetEditBypass('Nano 2.1', 'easily_pass')}
-                          className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                            (editModelBypass['Nano 2.1'] || 'easily_pass') === 'easily_pass'
-                              ? 'bg-emerald-600 text-white shadow-xs'
-                              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                          }`}
-                        >
-                          ✓ Easily Pass
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSetEditBypass('Nano 2.1', 'difficult_to_bypass')}
-                          className={`flex-1 sm:flex-none px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                            editModelBypass['Nano 2.1'] === 'difficult_to_bypass'
-                              ? 'bg-amber-600 text-white shadow-xs'
-                              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                          }`}
-                        >
-                          ⚠ Difficult to Bypass
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  /* Single Model Selected */
-                  <div className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-zinc-800">{editModelUsed}:</span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => handleSetEditBypass(editModelUsed, 'easily_pass')}
-                        className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                          (editModelBypass[editModelUsed] || 'easily_pass') === 'easily_pass'
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                        }`}
+                <div className="space-y-2">
+                  {editBypassModelsList.map((modelName: string) => {
+                    const currentStatus = editModelBypass[modelName] || 'easily_pass';
+                    return (
+                      <div
+                        key={modelName}
+                        className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs"
                       >
-                        ✓ Easily Pass
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSetEditBypass(editModelUsed, 'difficult_to_bypass')}
-                        className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                          editModelBypass[editModelUsed] === 'difficult_to_bypass'
-                            ? 'bg-amber-600 text-white shadow-xs'
-                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                        }`}
-                      >
-                        ⚠ Difficult to Bypass
-                      </button>
-                    </div>
-                  </div>
-                )}
+                        <span className="text-xs font-bold text-zinc-800">{modelName}:</span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleSetEditBypass(modelName, 'easily_pass')}
+                            className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                              currentStatus === 'easily_pass'
+                                ? 'bg-emerald-600 text-white shadow-xs'
+                                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                            }`}
+                          >
+                            ✓ Easily Pass
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSetEditBypass(modelName, 'difficult_to_bypass')}
+                            className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                              currentStatus === 'difficult_to_bypass'
+                                ? 'bg-amber-600 text-white shadow-xs'
+                                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                            }`}
+                          >
+                            ⚠ Difficult to Bypass
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
@@ -1511,57 +1487,55 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
               )}
 
               {/* Model Used & Bypass Difficulty Badges */}
-              {item.modelUsed && (
+              {(item.modelUsed || (item.modelBypass && Object.keys(item.modelBypass).length > 0)) && (
                 <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center text-xs font-bold shrink-0">
-                      <Cpu className="w-4 h-4 text-amber-700" />
+                  {item.modelUsed ? (
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center text-xs font-bold shrink-0">
+                        <Cpu className="w-4 h-4 text-amber-700" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Model Used</span>
+                        <span className="text-xs font-black text-zinc-900">
+                          {item.modelUsed === 'Both' ? 'Both (Nano Pro & 2.1)' : item.modelUsed}
+                        </span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Model Used</span>
-                      <span className="text-xs font-black text-zinc-900">
-                        {item.modelUsed === 'Both' ? 'Both (Nano Pro & 2.1)' : item.modelUsed}
-                      </span>
+                  ) : (
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-zinc-100 text-zinc-700 flex items-center justify-center text-xs font-bold shrink-0">
+                        <Cpu className="w-4 h-4 text-zinc-600" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Bypass Status</span>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Bypass Difficulty Badges */}
+                  {/* Bypass Difficulty Badges for All Evaluated Models */}
                   <div className="flex flex-wrap items-center gap-2">
-                    {item.modelUsed === 'Both' ? (
-                      <>
-                        <span className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs ${
-                          (item.modelBypass?.['Nano Pro'] || 'easily_pass') === 'easily_pass'
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
-                            : 'bg-amber-50 text-amber-800 border border-amber-300'
-                        }`}>
-                          <span>Nano Pro:</span>
+                    {item.modelBypass && Object.keys(item.modelBypass).length > 0 ? (
+                      Object.entries(item.modelBypass).map(([modelName, status]) => (
+                        <span
+                          key={modelName}
+                          className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs ${
+                            status === 'easily_pass'
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                              : 'bg-amber-50 text-amber-800 border border-amber-300'
+                          }`}
+                        >
+                          <span>{modelName}:</span>
                           <span className="font-extrabold">
-                            {(item.modelBypass?.['Nano Pro'] || 'easily_pass') === 'easily_pass' ? '✓ Easily Pass' : '⚠ Difficult to Bypass'}
+                            {status === 'easily_pass' ? '✓ Easily Pass' : '⚠ Difficult to Bypass'}
                           </span>
                         </span>
-                        <span className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs ${
-                          (item.modelBypass?.['Nano 2.1'] || 'easily_pass') === 'easily_pass'
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
-                            : 'bg-amber-50 text-amber-800 border border-amber-300'
-                        }`}>
-                          <span>Nano 2.1:</span>
-                          <span className="font-extrabold">
-                            {(item.modelBypass?.['Nano 2.1'] || 'easily_pass') === 'easily_pass' ? '✓ Easily Pass' : '⚠ Difficult to Bypass'}
-                          </span>
-                        </span>
-                      </>
-                    ) : (
-                      <span className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs ${
-                        (item.modelBypass?.[item.modelUsed] || 'easily_pass') === 'easily_pass'
-                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
-                          : 'bg-amber-50 text-amber-800 border border-amber-300'
-                      }`}>
+                      ))
+                    ) : item.modelUsed ? (
+                      <span className="px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs bg-emerald-50 text-emerald-800 border border-emerald-300">
                         <span>Bypass:</span>
-                        <span className="font-extrabold">
-                          {(item.modelBypass?.[item.modelUsed] || 'easily_pass') === 'easily_pass' ? '✓ Easily Pass' : '⚠ Difficult to Bypass'}
-                        </span>
+                        <span className="font-extrabold">✓ Easily Pass</span>
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               )}
