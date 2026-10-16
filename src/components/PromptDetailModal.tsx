@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { PromptItem, UserProfile } from '../types/prompt';
 import type { UploadableImage } from '../services/db';
 import {
@@ -125,28 +125,6 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
   const [editModelUsed, setEditModelUsed] = useState<string>('Nano Pro');
   const [isAddingModel, setIsAddingModel] = useState<boolean>(false);
   const [newModelInput, setNewModelInput] = useState<string>('');
-  const [editModelBypass, setEditModelBypass] = useState<Record<string, 'easily_pass' | 'difficult_to_bypass'>>({
-    'Nano Pro': 'easily_pass',
-    'Nano 2.1': 'easily_pass',
-  });
-
-  // Independent list of models for bypass evaluation in edit mode
-  const editBypassModelsList = useMemo(() => {
-    const list = ['Nano Pro', 'Nano 2.1'];
-    customModels.forEach((m) => {
-      if (!list.includes(m) && m !== 'Both') {
-        list.push(m);
-      }
-    });
-    if (item?.modelBypass) {
-      Object.keys(item.modelBypass).forEach((m) => {
-        if (!list.includes(m) && m !== 'Both') {
-          list.push(m);
-        }
-      });
-    }
-    return list;
-  }, [customModels, item?.modelBypass]);
 
   const [editPics, setEditPics] = useState<EditPicItem[]>([]);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
@@ -191,12 +169,6 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     setEditIsUsed(Boolean(promptItem.isUsed));
     setEditPublishCategory(promptItem.publishCategory || 'direct');
     setEditModelUsed(promptItem.modelUsed || 'Nano Pro');
-    setEditModelBypass(
-      promptItem.modelBypass || {
-        'Nano Pro': 'easily_pass',
-        'Nano 2.1': 'easily_pass',
-      }
-    );
 
     const rawDesc = promptItem.description || '';
     setEditDescription(rawDesc);
@@ -460,13 +432,6 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     setNewModelInput('');
   };
 
-  const handleSetEditBypass = (modelName: string, difficulty: 'easily_pass' | 'difficult_to_bypass') => {
-    setEditModelBypass((prev) => ({
-      ...prev,
-      [modelName]: difficulty,
-    }));
-  };
-
   const MAX_RAW_FILE_SIZE_MB = 25;
   const MAX_FINAL_FILE_SIZE_MB = 10;
 
@@ -583,12 +548,6 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
         }
       }
 
-      // Prepare bypass map for ALL evaluated models
-      const finalBypass: Record<string, 'easily_pass' | 'difficult_to_bypass'> = {};
-      editBypassModelsList.forEach((m: string) => {
-        finalBypass[m] = editModelBypass[m] || 'easily_pass';
-      });
-
       if (onUpdatePrompt) {
         await onUpdatePrompt(
           item.id,
@@ -601,7 +560,6 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
             isUsed: editEnableCheckmark ? editIsUsed : false,
             publishCategory: editEnableCheckmark && editIsUsed ? editPublishCategory : (null as any),
             modelUsed: editModelUsed,
-            modelBypass: finalBypass,
           },
           uploadableImages,
           item.images || [],
@@ -1128,55 +1086,6 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
                 )}
               </div>
 
-              {/* Query 2: Success Ratio / Bypass Difficulty (Independent for all models) */}
-              <div className="pt-3 border-t border-zinc-200/80 space-y-2.5">
-                <div>
-                  <label className="block text-xs font-bold text-zinc-800 uppercase tracking-wider">
-                    Success Ratio / Bypass Difficulty
-                  </label>
-                  <p className="text-[11px] text-zinc-500">
-                    Select pass/bypass status for each model
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  {editBypassModelsList.map((modelName: string) => {
-                    const currentStatus = editModelBypass[modelName] || 'easily_pass';
-                    return (
-                      <div
-                        key={modelName}
-                        className="p-2.5 rounded-xl bg-white border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs"
-                      >
-                        <span className="text-xs font-bold text-zinc-800">{modelName}:</span>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleSetEditBypass(modelName, 'easily_pass')}
-                            className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                              currentStatus === 'easily_pass'
-                                ? 'bg-emerald-600 text-white shadow-xs'
-                                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                            }`}
-                          >
-                            ✓ Easily Pass
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSetEditBypass(modelName, 'difficult_to_bypass')}
-                            className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                              currentStatus === 'difficult_to_bypass'
-                                ? 'bg-amber-600 text-white shadow-xs'
-                                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                            }`}
-                          >
-                            ⚠ Difficult to Bypass
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
             </div>
 
             {/* Images Manager */}
@@ -1486,56 +1395,17 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
                 )
               )}
 
-              {/* Model Used & Bypass Difficulty Badges */}
-              {(item.modelUsed || (item.modelBypass && Object.keys(item.modelBypass).length > 0)) && (
-                <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-                  {item.modelUsed ? (
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center text-xs font-bold shrink-0">
-                        <Cpu className="w-4 h-4 text-amber-700" />
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Model Used</span>
-                        <span className="text-xs font-black text-zinc-900">
-                          {item.modelUsed === 'Both' ? 'Both (Nano Pro & 2.1)' : item.modelUsed}
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-zinc-100 text-zinc-700 flex items-center justify-center text-xs font-bold shrink-0">
-                        <Cpu className="w-4 h-4 text-zinc-600" />
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Bypass Status</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Bypass Difficulty Badges for All Evaluated Models */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    {item.modelBypass && Object.keys(item.modelBypass).length > 0 ? (
-                      Object.entries(item.modelBypass).map(([modelName, status]) => (
-                        <span
-                          key={modelName}
-                          className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs ${
-                            status === 'easily_pass'
-                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
-                              : 'bg-amber-50 text-amber-800 border border-amber-300'
-                          }`}
-                        >
-                          <span>{modelName}:</span>
-                          <span className="font-extrabold">
-                            {status === 'easily_pass' ? '✓ Easily Pass' : '⚠ Difficult to Bypass'}
-                          </span>
-                        </span>
-                      ))
-                    ) : item.modelUsed ? (
-                      <span className="px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs bg-emerald-50 text-emerald-800 border border-emerald-300">
-                        <span>Bypass:</span>
-                        <span className="font-extrabold">✓ Easily Pass</span>
-                      </span>
-                    ) : null}
+              {/* Model Used Badge */}
+              {item.modelUsed && (
+                <div className="p-3.5 rounded-2xl bg-zinc-50 border border-zinc-200/90 flex items-center gap-2.5 shadow-2xs">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center text-xs font-bold shrink-0">
+                    <Cpu className="w-4 h-4 text-amber-700" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Model Used</span>
+                    <span className="text-xs font-black text-zinc-900">
+                      {item.modelUsed === 'Both' ? 'Both (Nano Pro & 2.1)' : item.modelUsed}
+                    </span>
                   </div>
                 </div>
               )}
