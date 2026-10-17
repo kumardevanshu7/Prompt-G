@@ -205,7 +205,10 @@ export const AddPromptModal: React.FC<AddPromptModalProps> = ({
   }, [cleanupBlobs]);
 
   // Step-by-step back handlers for mobile swipe-back gestures & Android back button
-  useBackHandler(isOpen && previewIndex === null && !isSubmitting, handleModalClose, 'add-prompt');
+  useBackHandler(isOpen && previewIndex === null, () => {
+    if (isSubmitting) return;
+    handleModalClose();
+  }, 'add-prompt');
   useBackHandler(isOpen && previewIndex !== null, () => setPreviewIndex(null), 'add-preview');
 
   if (!isOpen) return null;

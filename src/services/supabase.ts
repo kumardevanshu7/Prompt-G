@@ -49,9 +49,16 @@ export const uploadImageToSupabase = async (
     throw new Error('Supabase Storage is not configured.');
   }
 
-  // Generate unique file path
-  const fileExt = file.name.split('.').pop() || 'png';
-  const cleanExt = fileExt.toLowerCase().replace(/[^a-z0-9]/g, '');
+  // Generate clean, standard file extension based on MIME type first, then file.name
+  let cleanExt = 'jpg';
+  if (file.type === 'image/webp') cleanExt = 'webp';
+  else if (file.type === 'image/png') cleanExt = 'png';
+  else if (file.type === 'image/jpeg') cleanExt = 'jpg';
+  else if (file.type === 'image/gif') cleanExt = 'gif';
+  else if (file.name.includes('.')) {
+    const rawExt = file.name.split('.').pop() || 'jpg';
+    cleanExt = rawExt.toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+  }
   const fileName = `prompt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${cleanExt}`;
   const filePath = `uploads/${fileName}`;
 

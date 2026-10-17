@@ -35,6 +35,7 @@ import { getLabelBadgeClass, getLabelIcon } from '../utils/labelColors';
 import { compressImage, isHeicFile } from '../utils/imageCompressor';
 import { ImagePreviewModal } from './ImagePreviewModal';
 import { useBackHandler } from '../hooks/useBackHandler';
+import { verifySecurityAnswer } from '../utils/securityHash';
 
 export interface EditPicItem {
   id: string;
@@ -232,11 +233,17 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
   }, [cleanupEditBlobs, editPics]);
 
   // Step-by-step back handlers for mobile swipe-back gestures & Android back button
-  useBackHandler(Boolean(item) && !isPreviewOpen && !showEditAuthModal && !showConfirmDelete && !isEditingMode, onClose, 'detail-page');
+  useBackHandler(Boolean(item) && !isPreviewOpen && !showEditAuthModal && !showConfirmDelete && !isEditingMode, () => {
+    if (isDeleting || isSavingEdit) return;
+    onClose();
+  }, 'detail-page');
   useBackHandler(isPreviewOpen, () => setIsPreviewOpen(false), 'detail-preview');
   useBackHandler(showEditAuthModal, () => setShowEditAuthModal(false), 'detail-auth');
   useBackHandler(showConfirmDelete, () => setShowConfirmDelete(false), 'detail-delete');
-  useBackHandler(isEditingMode && !isPreviewOpen, handleCancelEdit, 'detail-edit');
+  useBackHandler(isEditingMode && !isPreviewOpen, () => {
+    if (isSavingEdit) return;
+    handleCancelEdit();
+  }, 'detail-edit');
 
   // Touch edge swipe-back gesture detector for mobile screens
   const touchStartXRef = useRef<number | null>(null);
@@ -306,7 +313,8 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     e.preventDefault();
     if (!userProfile?.securityAnswer) return;
 
-    if (deleteSecurityInput.trim().toLowerCase() !== userProfile.securityAnswer.trim().toLowerCase()) {
+    const isMatch = await verifySecurityAnswer(deleteSecurityInput, userProfile.securityAnswer);
+    if (!isMatch) {
       setDeleteError('Incorrect secret answer. Prompt cannot be deleted.');
       return;
     }
@@ -328,11 +336,12 @@ export const PromptDetailModal: React.FC<PromptDetailModalProps> = ({
     }
   };
 
-  const handleVerifyEditPassword = (e: React.FormEvent) => {
+  const handleVerifyEditPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userProfile?.securityAnswer) return;
 
-    if (editSecurityInput.trim().toLowerCase() !== userProfile.securityAnswer.trim().toLowerCase()) {
+    const isMatch = await verifySecurityAnswer(editSecurityInput, userProfile.securityAnswer);
+    if (!isMatch) {
       setEditSecurityError('Incorrect security password / passkey! Verification failed.');
       return;
     }

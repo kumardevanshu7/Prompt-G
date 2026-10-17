@@ -15,7 +15,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   publishedCount = 0,
 }) => {
   return (
-    <div className="fixed bottom-4 inset-x-0 z-40 flex justify-center px-3 pointer-events-none">
+    <div
+      className="fixed inset-x-0 z-40 flex justify-center px-3 pointer-events-none"
+      style={{ bottom: 'max(1rem, env(safe-area-inset-bottom, 1rem))' }}
+    >
       <nav
         aria-label="Bottom Navigation"
         className="pointer-events-auto flex items-center justify-around px-3 sm:px-6 py-2 rounded-full bg-white/95 backdrop-blur-xl shadow-xl border border-zinc-200/80 max-w-[380px] w-full transition-all"

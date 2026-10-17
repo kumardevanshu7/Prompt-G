@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import type { PromptItem } from '../types/prompt';
 import {
   ArrowUpRight,
@@ -9,6 +9,7 @@ import {
   Compass,
   Search,
   Maximize2,
+  X,
 } from 'lucide-react';
 import { getLabelBadgeClass, getLabelIcon } from '../utils/labelColors';
 import { ImagePreviewModal } from './ImagePreviewModal';
@@ -36,6 +37,13 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [previewPrompt, setPreviewPrompt] = useState<PromptItem | null>(null);
+  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
+    };
+  }, []);
 
   // Step-by-step back handler for preview lightbox on mobile
   useBackHandler(previewPrompt !== null, () => setPreviewPrompt(null), 'explore-preview');
@@ -44,9 +52,13 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
     e.stopPropagation();
     const success = await copyToClipboard(item.prompt);
     if (success) {
+      if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
       setCopiedId(item.id);
       onCopyPrompt(item.prompt, item.title);
-      setTimeout(() => setCopiedId(null), 2000);
+      copiedTimeoutRef.current = setTimeout(() => {
+        setCopiedId(null);
+        copiedTimeoutRef.current = null;
+      }, 2000);
     }
   };
 
@@ -79,12 +91,26 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
         </div>
 
         {activeCategory !== 'all' && (
-          <button
-            onClick={() => onSelectCategory('all')}
-            className="text-xs font-semibold text-rose-600 hover:text-rose-700 underline cursor-pointer"
-          >
-            Show all
-          </button>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-zinc-900 text-white flex items-center gap-1 shadow-xs">
+              <span>Filter:</span>
+              <span className="text-amber-400">
+                {activeCategory === '__pending'
+                  ? 'Pending (No)'
+                  : activeCategory === '__used'
+                  ? 'Used (Yes)'
+                  : `#${activeCategory}`}
+              </span>
+            </span>
+            <button
+              onClick={() => onSelectCategory('all')}
+              className="p-1 rounded-full bg-zinc-200 hover:bg-zinc-300 text-zinc-700 text-xs font-bold transition-colors cursor-pointer"
+              title="Clear filter"
+              aria-label="Clear filter"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
       </div>
 

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Download, X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Download, X, Share } from 'lucide-react';
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -18,6 +18,12 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onInstalled 
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [isIos, setIsIos] = useState(false);
+
+  const onInstalledRef = useRef(onInstalled);
+  useEffect(() => {
+    onInstalledRef.current = onInstalled;
+  });
 
   useEffect(() => {
     // Check if already in standalone / installed mode
@@ -40,6 +46,15 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onInstalled 
       // Storage access blocked or unavailable
     }
 
+    // Check iOS Safari (which doesn't support beforeinstallprompt)
+    const ua = window.navigator.userAgent;
+    const isIosDevice = /iPad|iPhone|iPod/.test(ua) && !(window as unknown as { MSStream?: unknown }).MSStream;
+    if (isIosDevice) {
+      setIsIos(true);
+      setIsVisible(true);
+      return;
+    }
+
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
@@ -50,7 +65,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onInstalled 
       setIsVisible(false);
       setIsInstalled(true);
       setDeferredPrompt(null);
-      onInstalled?.();
+      onInstalledRef.current?.();
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -60,7 +75,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onInstalled 
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
     };
-  }, [onInstalled]);
+  }, []);
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
@@ -87,7 +102,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onInstalled 
     } catch {}
   };
 
-  if (isInstalled || !isVisible || !deferredPrompt) {
+  if (isInstalled || !isVisible || (!deferredPrompt && !isIos)) {
     return null;
   }
 
@@ -107,7 +122,7 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onInstalled 
             <div className="flex items-center gap-1.5">
               <h4 className="text-xs sm:text-sm font-bold leading-tight">Install Prompt G App</h4>
               <span className="px-1.5 py-0.5 rounded-full bg-amber-400 text-zinc-950 text-[9px] font-black uppercase">
-                App / APK
+                {isIos ? 'iOS PWA' : 'App / APK'}
               </span>
             </div>
             <p className="text-[11px] text-zinc-400 mt-0.5 leading-snug">
@@ -125,21 +140,30 @@ export const PWAInstallBanner: React.FC<PWAInstallBannerProps> = ({ onInstalled 
         </button>
       </div>
 
-      <div className="mt-3 flex items-center gap-2 pt-2 border-t border-zinc-800">
-        <button
-          onClick={handleInstallClick}
-          className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-full bg-amber-400 hover:bg-amber-300 text-zinc-950 text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Install Now</span>
-        </button>
-        <button
-          onClick={handleDismiss}
-          className="px-3.5 py-2.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold transition-colors cursor-pointer"
-        >
-          Maybe Later
-        </button>
-      </div>
+      {isIos ? (
+        <div className="mt-3 flex items-center gap-2 pt-2 border-t border-zinc-800 text-xs text-zinc-300">
+          <div className="flex items-center gap-2 bg-zinc-800/80 p-2.5 rounded-2xl w-full">
+            <Share className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Tap <strong>Share</strong> in Safari, then <strong>Add to Home Screen</strong></span>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 flex items-center gap-2 pt-2 border-t border-zinc-800">
+          <button
+            onClick={handleInstallClick}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-full bg-amber-400 hover:bg-amber-300 text-zinc-950 text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Install Now</span>
+          </button>
+          <button
+            onClick={handleDismiss}
+            className="px-3.5 py-2.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold transition-colors cursor-pointer"
+          >
+            Maybe Later
+          </button>
+        </div>
+      )}
     </aside>
   );
 };

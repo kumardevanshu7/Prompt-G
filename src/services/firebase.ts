@@ -72,16 +72,11 @@ export const onAuthChange = (callback: (user: User | null) => void) => {
 // ==========================================
 
 export const getUserProfile = async (uid: string): Promise<UserProfile | null> => {
-  try {
-    const userDoc = await getDoc(doc(db, 'users', uid));
-    if (userDoc.exists()) {
-      return userDoc.data() as UserProfile;
-    }
-    return null;
-  } catch (err) {
-    console.error('Error fetching user profile:', err);
-    return null;
+  const userDoc = await getDoc(doc(db, 'users', uid));
+  if (userDoc.exists()) {
+    return userDoc.data() as UserProfile;
   }
+  return null;
 };
 
 export const saveUserProfile = async (profile: UserProfile): Promise<void> => {
@@ -225,15 +220,17 @@ export const deleteAllFirebasePrompts = async (userId: string): Promise<string[]
   const q = query(collection(db, 'prompts'), where('userId', '==', userId));
   const snap = await getDocs(q);
 
-  const allImageUrls: string[] = [];
-  snap.docs.forEach((d) => {
+  const successfulImageUrls: string[] = [];
+  const deletions = snap.docs.map(async (d) => {
+    await deleteDoc(d.ref);
     const data = d.data();
-    if (Array.isArray(data.images)) allImageUrls.push(...data.images);
+    if (Array.isArray(data.images)) {
+      successfulImageUrls.push(...data.images);
+    }
   });
 
-  const deletions = snap.docs.map((d) => deleteDoc(d.ref));
   await Promise.allSettled(deletions);
-  return allImageUrls;
+  return successfulImageUrls;
 };
 
 /**

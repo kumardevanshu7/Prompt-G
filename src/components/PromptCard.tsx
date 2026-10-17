@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import type { PromptItem } from '../types/prompt';
 import {
   Copy,
@@ -28,6 +28,13 @@ export const PromptCard: React.FC<PromptCardProps> = ({
 }) => {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   const images = item.images && item.images.length > 0 ? item.images : [];
   const totalImages = images.length;
@@ -47,9 +54,13 @@ export const PromptCard: React.FC<PromptCardProps> = ({
     e.stopPropagation();
     const success = await copyToClipboard(item.prompt);
     if (success) {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
       setCopied(true);
       onCopyPrompt(item.prompt, item.title);
-      setTimeout(() => setCopied(false), 2000);
+      copyTimerRef.current = setTimeout(() => {
+        setCopied(false);
+        copyTimerRef.current = null;
+      }, 2000);
     }
   };
 
@@ -95,7 +106,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
         )}
 
         {/* Top Badges (Status Badge on left, and Images count on right) */}
-        <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 right-2.5 sm:right-3 flex items-center justify-between z-10 pointer-events-none gap-1.5">
+        <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 right-2.5 sm:right-3 flex items-center justify-between z-30 pointer-events-none gap-1.5">
           {/* Left: Red / Green Dot Status Label */}
           <div className="flex items-center pointer-events-auto shrink-0 min-w-0">
             {item.enableCheckmark && (
@@ -158,18 +169,18 @@ export const PromptCard: React.FC<PromptCardProps> = ({
 
         {/* Multi-image navigation buttons (visible on hover & on touch) */}
         {totalImages > 1 && (
-          <div className="absolute inset-y-0 inset-x-2 flex items-center justify-between z-20 pointer-events-auto sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+          <div className="absolute inset-y-0 inset-x-2 flex items-center justify-between z-20 pointer-events-none sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
             <button
               onClick={handlePrevImage}
               aria-label="Previous image"
-              className="w-7 h-7 rounded-full bg-black/50 hover:bg-black/80 backdrop-blur-sm text-white flex items-center justify-center transition-all cursor-pointer shadow"
+              className="pointer-events-auto w-7 h-7 rounded-full bg-black/50 hover:bg-black/80 backdrop-blur-sm text-white flex items-center justify-center transition-all cursor-pointer shadow"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
               onClick={handleNextImage}
               aria-label="Next image"
-              className="w-7 h-7 rounded-full bg-black/50 hover:bg-black/80 backdrop-blur-sm text-white flex items-center justify-center transition-all cursor-pointer shadow"
+              className="pointer-events-auto w-7 h-7 rounded-full bg-black/50 hover:bg-black/80 backdrop-blur-sm text-white flex items-center justify-center transition-all cursor-pointer shadow"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

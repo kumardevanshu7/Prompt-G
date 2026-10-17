@@ -27,28 +27,42 @@ export const saveNewPrompt = async (
   onProgress?: (current: number, total: number) => void
 ): Promise<PromptItem> => {
   const finalUrls: string[] = [];
+  const newlyUploadedUrls: string[] = [];
   const filesToUpload = imagesToProcess.filter((img) => img.file);
   let uploadedCount = 0;
 
-  // Process images strictly in the order arranged by the user
-  for (let i = 0; i < imagesToProcess.length; i++) {
-    const img = imagesToProcess[i];
-    if (img.file) {
-      uploadedCount++;
-      onProgress?.(uploadedCount, filesToUpload.length);
-      const uploadedUrl = await uploadImageToSupabase(img.file);
-      finalUrls.push(uploadedUrl);
-    } else if (img.url) {
-      finalUrls.push(img.url);
+  try {
+    // Process images strictly in the order arranged by the user
+    for (let i = 0; i < imagesToProcess.length; i++) {
+      const img = imagesToProcess[i];
+      if (img.file) {
+        uploadedCount++;
+        onProgress?.(uploadedCount, filesToUpload.length);
+        const uploadedUrl = await uploadImageToSupabase(img.file);
+        newlyUploadedUrls.push(uploadedUrl);
+        finalUrls.push(uploadedUrl);
+      } else if (img.url) {
+        finalUrls.push(img.url);
+      }
     }
+
+    const promptToSave = {
+      ...item,
+      images: finalUrls,
+    };
+
+    return await insertFirebasePrompt(promptToSave);
+  } catch (err) {
+    // If upload or Firestore write failed midway, clean up any newly uploaded orphan files
+    if (newlyUploadedUrls.length > 0) {
+      try {
+        await deleteImagesFromSupabase(newlyUploadedUrls);
+      } catch (cleanupErr) {
+        console.warn('Failed to clean up newly uploaded images after save error:', cleanupErr);
+      }
+    }
+    throw err;
   }
-
-  const promptToSave = {
-    ...item,
-    images: finalUrls,
-  };
-
-  return await insertFirebasePrompt(promptToSave);
 };
 
 export const removePromptById = async (id: string, imageUrls: string[] = []): Promise<void> => {
@@ -58,7 +72,10 @@ export const removePromptById = async (id: string, imageUrls: string[] = []): Pr
   // 2. Delete files from Supabase Storage SECOND so document deletion is guaranteed
   if (imageUrls && imageUrls.length > 0) {
     try {
-      await deleteImagesFromSupabase(imageUrls);
+      const res = await deleteImagesFromSupabase(imageUrls);
+      if (res.failed > 0) {
+        console.warn(`Supabase storage cleanup: ${res.failed} files failed to delete.`);
+      }
     } catch (err) {
       console.warn('Failed to delete images from Supabase Storage:', err);
     }
@@ -145,9 +162,10 @@ export const updateExistingPrompt = async (
  */
 export const subscribeToPromptChanges = (
   userId: string,
-  onUpdate: (prompts: PromptItem[]) => void
+  onUpdate: (prompts: PromptItem[]) => void,
+  onError?: (err: Error) => void
 ): (() => void) => {
-  return subscribeFirebasePrompts(userId, onUpdate);
+  return subscribeFirebasePrompts(userId, onUpdate, onError);
 };
 
 /**

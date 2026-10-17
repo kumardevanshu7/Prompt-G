@@ -13,7 +13,10 @@ export function useBackHandler(
   name = 'overlay'
 ) {
   const onBackRef = useRef(onBack);
-  onBackRef.current = onBack;
+
+  useEffect(() => {
+    onBackRef.current = onBack;
+  }, [onBack]);
 
   useEffect(() => {
     if (!isOpen) return;

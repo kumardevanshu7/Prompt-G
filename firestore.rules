@@ -1,5 +1,5 @@
 // =====================================================================
-// FIRESTORE RULES FOR PROMPTG (FAST MOBILE + LAPTOP SYNC)
+// FIRESTORE RULES FOR PROMPTG (SECURE USER-SCOPED ACCESS)
 // Copy the entire code below and paste it in:
 // Firebase Console -> Firestore Database -> "Rules" tab -> Click "Publish"
 // =====================================================================
@@ -9,14 +9,15 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Allow full read and write access for prompts (Mobile + Laptop fast real-time sync)
+    // Prompts Collection: Scoped strictly to the authenticated creator
     match /prompts/{promptId} {
-      allow read, write: if true;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
     }
 
-    // Allow user profiles creation and reading
+    // User Profiles Collection: Only accessible by the account owner
     match /users/{userId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }

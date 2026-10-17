@@ -7,6 +7,7 @@ import type { UserProfile } from '../types/prompt';
 import { saveUserProfile, auth, googleProvider } from '../services/firebase';
 import { reauthenticateWithPopup } from 'firebase/auth';
 import { useBackHandler } from '../hooks/useBackHandler';
+import { hashSecurityAnswer, verifySecurityAnswer } from '../utils/securityHash';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -91,7 +92,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }, [isOpen, userProfile]);
 
   // Step-by-step back handler for mobile swipe-back gesture & Android back button
-  useBackHandler(isOpen && !isSaving && !isResettingApp, onClose, 'settings-modal');
+  useBackHandler(isOpen, () => {
+    if (isSaving || isResettingApp) return;
+    onClose();
+  }, 'settings-modal');
 
   // Close on Escape key
   useEffect(() => {
@@ -130,7 +134,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (hasExistingSetup && !isUnlockedByGoogle) {
       const trimmed = currentAnswer.trim();
       if (!trimmed) { setError('Please enter your current secret answer.'); return; }
-      if (trimmed.toLowerCase() !== userProfile.securityAnswer?.trim().toLowerCase()) {
+      const isMatch = await verifySecurityAnswer(trimmed, userProfile.securityAnswer);
+      if (!isMatch) {
         setError('Incorrect current secret answer! Authorization denied.'); return;
       }
     }
@@ -151,8 +156,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
 
     const answerToSave = finalNewAnswer
-      ? finalNewAnswer.toLowerCase()
-      : (userProfile.securityAnswer || '').toLowerCase();
+      ? await hashSecurityAnswer(finalNewAnswer)
+      : userProfile.securityAnswer || '';
 
     if (!answerToSave) { setError('Secret answer cannot be empty.'); return; }
 

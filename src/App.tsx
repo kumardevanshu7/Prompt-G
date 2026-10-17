@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import type { PromptItem, UserProfile } from './types/prompt';
 import {
-  fetchAllPrompts,
   saveNewPrompt,
   removePromptById,
   updatePromptStatus,
@@ -106,19 +105,32 @@ export function App() {
     const unsubAuth = onAuthChange(async (firebaseUser) => {
       try {
         if (firebaseUser) {
-          const profile = await getUserProfile(firebaseUser.uid);
-          if (profile && profile.name) {
-            setUserProfile(profile);
-            setIsOnboardingOpen(false);
-          } else {
-            // New user or missing profile -> Onboarding
-            setPendingGoogleUser({
+          try {
+            const profile = await getUserProfile(firebaseUser.uid);
+            if (profile && profile.name) {
+              setUserProfile(profile);
+              setIsOnboardingOpen(false);
+            } else {
+              // New user or missing profile -> Onboarding
+              setPendingGoogleUser({
+                uid: firebaseUser.uid,
+                displayName: firebaseUser.displayName,
+                email: firebaseUser.email,
+                photoURL: firebaseUser.photoURL,
+              });
+              setIsOnboardingOpen(true);
+            }
+          } catch (profileErr) {
+            console.error('Failed to fetch user profile, falling back to active auth session:', profileErr);
+            // Don't force onboarding on temporary network failure
+            setUserProfile({
               uid: firebaseUser.uid,
-              displayName: firebaseUser.displayName,
-              email: firebaseUser.email,
-              photoURL: firebaseUser.photoURL,
+              name: firebaseUser.displayName || 'Creator',
+              email: firebaseUser.email || '',
+              photoURL: firebaseUser.photoURL || undefined,
             });
-            setIsOnboardingOpen(true);
+            setIsOnboardingOpen(false);
+            showToast('Network issue fetching profile. Using active session.', 'info');
           }
         } else {
           setUserProfile(null);
@@ -135,7 +147,7 @@ export function App() {
     return () => unsubAuth();
   }, []);
 
-  // Prompts Real-time Sync (Scoped to authenticated user, direct data delivery)
+  // Prompts Real-time Sync (Scoped to authenticated user, single source of truth)
   useEffect(() => {
     if (!userProfile?.uid) {
       setPrompts([]);
@@ -145,23 +157,19 @@ export function App() {
 
     setLoading(true);
 
-    // Initial load
-    fetchAllPrompts(userProfile.uid)
-      .then((data) => {
-        setPrompts(data);
-      })
-      .catch((err) => {
-        console.error('Failed to load prompts:', err);
-      })
-      .finally(() => {
+    // Real-time listener: snapshot updates state directly, eliminating double reads & race conditions
+    const unsubscribe = subscribeToPromptChanges(
+      userProfile.uid,
+      (updatedPrompts) => {
+        setPrompts(updatedPrompts);
         setLoading(false);
-      });
-
-    // Real-time listener: snapshot updates state directly, eliminating double reads
-    const unsubscribe = subscribeToPromptChanges(userProfile.uid, (updatedPrompts) => {
-      setPrompts(updatedPrompts);
-      setLoading(false);
-    });
+      },
+      (err) => {
+        console.error('Failed to sync prompts:', err);
+        setLoading(false);
+        showToast('Failed to sync prompts from server', 'error');
+      }
+    );
 
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
@@ -214,10 +222,10 @@ export function App() {
     showToast(`Welcome to PromptG, ${completedProfile.name}!`, 'success');
   };
 
-  // Compute distinct labels & counts from actual prompts (normalized lowercase)
+  // Compute distinct labels & counts from actual prompts (case-insensitive deduplication)
   const { categories, counts } = useMemo(() => {
     const labelCounts: Record<string, number> = { all: prompts.length };
-    const labelSet = new Set<string>();
+    const canonicalMap = new Map<string, string>(); // lowercase -> canonical display name
 
     let pendingCount = 0;
     let usedCount = 0;
@@ -232,23 +240,33 @@ export function App() {
       }
 
       if (p.labels && Array.isArray(p.labels)) {
+        // Track unique labels per prompt to avoid double counting if a prompt has duplicates
+        const seenInPrompt = new Set<string>();
         p.labels.forEach((l) => {
           const norm = l.trim();
           if (norm) {
-            labelSet.add(norm);
             const lower = norm.toLowerCase();
-            labelCounts[lower] = (labelCounts[lower] || 0) + 1;
-            labelCounts[norm] = labelCounts[lower];
+            if (!canonicalMap.has(lower)) {
+              canonicalMap.set(lower, norm);
+            }
+            if (!seenInPrompt.has(lower)) {
+              seenInPrompt.add(lower);
+              labelCounts[lower] = (labelCounts[lower] || 0) + 1;
+            }
           }
         });
       }
+    });
+
+    canonicalMap.forEach((canonical, lower) => {
+      labelCounts[canonical] = labelCounts[lower] || 0;
     });
 
     labelCounts['__pending'] = pendingCount;
     labelCounts['__used'] = usedCount;
 
     return {
-      categories: Array.from(labelSet),
+      categories: Array.from(canonicalMap.values()),
       counts: labelCounts,
     };
   }, [prompts]);
@@ -429,11 +447,9 @@ export function App() {
   const handleToggleEnableTracking = async (id: string, enableCheckmark: boolean) => {
     try {
       setPrompts((prev) =>
-        prev.map((p) =>
-          p.id === id ? { ...p, enableCheckmark, isUsed: enableCheckmark ? (p.isUsed ?? false) : false } : p
-        )
+        prev.map((p) => (p.id === id ? { ...p, enableCheckmark } : p))
       );
-      await updatePromptStatus(id, { enableCheckmark, isUsed: false, publishCategory: null as any });
+      await updatePromptStatus(id, { enableCheckmark });
       showToast(
         enableCheckmark
           ? 'Social tracking enabled! (🔴 Red dot added)'

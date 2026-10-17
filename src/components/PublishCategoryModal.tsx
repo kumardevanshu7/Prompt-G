@@ -17,9 +17,21 @@ export const PublishCategoryModal: React.FC<PublishCategoryModalProps> = ({
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<'direct' | 'unreleased'>('direct');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Reset state when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedCategory('direct');
+      setError(null);
+    }
+  }, [isOpen]);
 
   // Step-by-step back handler for mobile swipe-back gesture & Android back button
-  useBackHandler(isOpen && !isSubmitting, onClose, 'publish-category');
+  useBackHandler(isOpen, () => {
+    if (isSubmitting) return;
+    onClose();
+  }, 'publish-category');
 
   // Close on Escape key
   useEffect(() => {
@@ -38,8 +50,12 @@ export const PublishCategoryModal: React.FC<PublishCategoryModalProps> = ({
   const handleSelect = async (cat: 'direct' | 'unreleased') => {
     try {
       setIsSubmitting(true);
+      setError(null);
       await onConfirm(cat);
       onClose();
+    } catch (err: unknown) {
+      console.error('Failed to set publish category:', err);
+      setError(err instanceof Error ? err.message : 'Failed to publish prompt. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -55,6 +71,13 @@ export const PublishCategoryModal: React.FC<PublishCategoryModalProps> = ({
       }}
     >
       <div data-lenis-prevent className="relative w-full max-w-md bg-white rounded-3xl p-6 sm:p-7 shadow-2xl border border-zinc-200/90 space-y-5">
+        {/* Error notification if submission failed */}
+        {error && (
+          <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+            {error}
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
           <div className="flex items-center gap-2.5">
